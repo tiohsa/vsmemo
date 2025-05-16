@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext) {
 				try {
 					dirStat = await fs.promises.stat(dir);
 				} catch (err: any) {
-					// stat失敗時は常にmkdirを試みる（テスト仕様に合わせる）
+					// Always try mkdir if stat fails (to match test specification)
 					try {
 						await fs.promises.mkdir(dir, { recursive: true });
 					} catch (mkdirErr: any) {
@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 				}
 
-				// statが成功した場合はディレクトリかどうかをチェック
+				// If stat succeeds, check if it is a directory
 				if (dirStat && !dirStat.isDirectory()) {
 					vscode.window.showErrorMessage(`Failed to create note: ${dir} exists but is not a directory`);
 					return;
@@ -66,17 +66,17 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.window.showErrorMessage('Failed to create note: ' + err.message);
 			}
 		}),
-		// --- ここから新コマンド ---
+		// --- New commands from here ---
 		vscode.commands.registerCommand('vsmemo.createTableAtPosition', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const rowStr = await vscode.window.showInputBox({ prompt: '行数を入力してください', validateInput: v => /^\d+$/.test(v) ? undefined : '数字を入力してください' });
-			const colStr = await vscode.window.showInputBox({ prompt: '列数を入力してください', validateInput: v => /^\d+$/.test(v) ? undefined : '数字を入力してください' });
+			const rowStr = await vscode.window.showInputBox({ prompt: 'Enter number of rows', validateInput: v => /^\d+$/.test(v) ? undefined : 'Please enter a number' });
+			const colStr = await vscode.window.showInputBox({ prompt: 'Enter number of columns', validateInput: v => /^\d+$/.test(v) ? undefined : 'Please enter a number' });
 			if (!rowStr || !colStr) { return; }
 			const rows = parseInt(rowStr, 10);
 			const cols = parseInt(colStr, 10);
-			const withHeader = await vscode.window.showQuickPick(['ヘッダーあり', 'ヘッダーなし'], { placeHolder: 'ヘッダー行を含めますか？' });
-			const tableLines = generateEmptyTable(rows, cols, withHeader === 'ヘッダーあり');
+			const withHeader = await vscode.window.showQuickPick(['With header', 'Without header'], { placeHolder: 'Include header row?' });
+			const tableLines = generateEmptyTable(rows, cols, withHeader === 'With header');
 			await editor.edit(editBuilder => {
 				const pos = editor.selection.active;
 				editBuilder.insert(pos, tableLines.join('\n') + '\n');
@@ -87,14 +87,14 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!editor) { return; }
 			const cursorLine = editor.selection.active.line;
 			const doc = editor.document;
-			// テーブル範囲検出
+			// Detect table range
 			let start = cursorLine, end = cursorLine;
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const lines: string[] = [];
 			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
-			// カーソルの列位置を特定
+			// Determine cursor column position
 			const cursorChar = editor.selection.active.character;
 			const relLine = cursorLine - start;
 			const lineText = lines[relLine];
@@ -120,16 +120,16 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!editor) { return; }
 			const cursorLine = editor.selection.active.line;
 			const doc = editor.document;
-			// テーブル範囲検出
+			// Detect table range
 			let start = cursorLine, end = cursorLine;
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const lines: string[] = [];
 			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
-			// 挿入行位置を特定（ヘッダー・セパレータを除いたデータ行のどこに入れるか）
+			// Determine insert row position (where to insert among data rows, excluding header/separator)
 			const relLine = cursorLine - start;
-			// relLine=0:ヘッダー, 1:セパレータ, 2以降:データ
+			// relLine=0:header, 1:separator, 2 or more:data
 			let rowIdx = Math.max(0, relLine - 2);
 			const colCount = table.header.length;
 			table.rows.splice(rowIdx, 0, Array(colCount).fill(''));
@@ -142,14 +142,14 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('vsmemo.convertSelectionToTable', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const delimiter = await vscode.window.showInputBox({ prompt: '区切り文字を入力してください（例: , または \t）' });
+			const delimiter = await vscode.window.showInputBox({ prompt: 'Enter delimiter (e.g., , or \\t)' });
 			if (!delimiter) { return; }
 			const sel = editor.selection;
 			const text = editor.document.getText(sel);
 			const lines = text.split('\n');
 			const cells = lines.map(line => line.split(delimiter).map(cell => cell.trim()));
 			const colCount = Math.max(...cells.map(arr => arr.length));
-			const header = Array(colCount).fill(''); // 空のヘッダ
+			const header = Array(colCount).fill(''); // empty header
 			const separator = Array(colCount).fill('---');
 			const body = cells.map(row => {
 				const filled = Array(colCount).fill('');
