@@ -7,3 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Initial release
+- Added Markdown table editing features:
+  - Create Markdown Table at Position
+  - Insert Markdown Table Column
+  - Insert Markdown Table Row
+  - Convert Selection to Markdown Table

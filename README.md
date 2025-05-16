@@ -7,6 +7,10 @@ VSMemo is a Visual Studio Code extension that allows you to quickly create date-
 - Create a new note file with the current date and a custom title.
 - The note file is created in a configurable directory within your workspace.
 - The file name format is customizable (e.g., `${yyyy}-${MM}-${dd}_${title}.md`).
+- **Create Markdown Table at Position**: Insert a Markdown table at the cursor with specified rows/columns.
+- **Insert Markdown Table Column**: Insert a column into a Markdown table at the cursor position.
+- **Insert Markdown Table Row**: Insert a row into a Markdown table at the cursor position.
+- **Convert Selection to Markdown Table**: Convert selected text (with a delimiter) into a Markdown table.
 
 ## Requirements
 
@@ -15,9 +19,13 @@ VSMemo is a Visual Studio Code extension that allows you to quickly create date-
 ## Usage
 
 1. Open the command palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
-2. Run the command: **Create Date Note**.
-3. Enter a title for your note.
-4. A new Markdown file will be created in the configured directory with the current date and your title.
+2. Run one of the following commands:
+   - **Create Date Note**: Create a new date-stamped note.
+   - **Create Markdown Table at Position**: Insert a Markdown table at the cursor. You will be prompted for row/column count and header.
+   - **Insert Markdown Table Column**: Select a Markdown table, run this command, and specify the column index to insert.
+   - **Insert Markdown Table Row**: Select a Markdown table, run this command, and specify the row index to insert.
+   - **Convert Selection to Markdown Table**: Select delimited text, run this command, and specify the delimiter (e.g., comma, tab).
+3. Follow the prompts to complete the action.
 
 ## Extension Settings
 
