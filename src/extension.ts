@@ -85,15 +85,27 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('vsmemo.insertColumn', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const colStr = await vscode.window.showInputBox({ prompt: '挿入する列番号（0始まり）', validateInput: v => /^\d+$/.test(v) ? undefined : '数字を入力してください' });
-			if (!colStr) { return; }
-			const colIdx = parseInt(colStr, 10);
-			const sel = editor.selection;
-			const start = sel.start.line;
-			const end = sel.end.line;
+			const cursorLine = editor.selection.active.line;
+			const doc = editor.document;
+			// テーブル範囲検出
+			let start = cursorLine, end = cursorLine;
+			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
+			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const lines: string[] = [];
-			for (let i = start; i <= end; i++) { lines.push(editor.document.lineAt(i).text); }
+			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
+			// カーソルの列位置を特定
+			const cursorChar = editor.selection.active.character;
+			const relLine = cursorLine - start;
+			const lineText = lines[relLine];
+			let colIdx = 0;
+			const pipeIdxs = [...lineText.matchAll(/\|/g)].map(m => m.index!);
+			for (let i = 0; i < pipeIdxs.length - 1; i++) {
+				if (cursorChar >= pipeIdxs[i] && cursorChar < pipeIdxs[i + 1]) {
+					colIdx = i;
+					break;
+				}
+			}
 			table.header.splice(colIdx, 0, '');
 			table.separator.splice(colIdx, 0, '---');
 			table.rows = table.rows.map((row: string[]) => { row.splice(colIdx, 0, ''); return row; });
@@ -106,15 +118,19 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('vsmemo.insertRow', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const rowStr = await vscode.window.showInputBox({ prompt: '挿入する行番号（0始まり, ヘッダー含む）', validateInput: v => /^\d+$/.test(v) ? undefined : '数字を入力してください' });
-			if (!rowStr) { return; }
-			const rowIdx = parseInt(rowStr, 10);
-			const sel = editor.selection;
-			const start = sel.start.line;
-			const end = sel.end.line;
+			const cursorLine = editor.selection.active.line;
+			const doc = editor.document;
+			// テーブル範囲検出
+			let start = cursorLine, end = cursorLine;
+			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
+			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const lines: string[] = [];
-			for (let i = start; i <= end; i++) { lines.push(editor.document.lineAt(i).text); }
+			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
+			// 挿入行位置を特定（ヘッダー・セパレータを除いたデータ行のどこに入れるか）
+			const relLine = cursorLine - start;
+			// relLine=0:ヘッダー, 1:セパレータ, 2以降:データ
+			let rowIdx = Math.max(0, relLine - 2);
 			const colCount = table.header.length;
 			table.rows.splice(rowIdx, 0, Array(colCount).fill(''));
 			const newLines = stringifyMarkdownTable(table);
