@@ -1,28 +1,59 @@
 {
   "name": "vsmemo",
   "displayName": "VSMemo",
-  "description": "",
+  "description": "A VSCode extension that automatically generates date-stamped notes in your workspace.",
   "version": "0.0.1",
+  "publisher": "YourPublisherName",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YourUserName/vsmemo.git"
+  },
+  "author": "Your Name <email@example.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/YourUserName/vsmemo#readme",
   "engines": {
     "vscode": "^1.100.0"
   },
   "categories": [
-    "Other"
+    "Notes"
   ],
-  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "vsmemo.helloWorld",
-        "title": "Hello World"
+        "command": "vsmemo.createDateNote",
+        "title": "Create Date Note"
       }
-    ]
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "vsmemo.createDateNote",
+          "title": "Create Date Note"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VSMemo Settings",
+      "properties": {
+        "vsmemo.createDirectory": {
+          "type": "string",
+          "default": "${workspaceFolder}/notes",
+          "description": "Absolute path or workspace-relative path to the directory where notes will be created"
+        },
+        "vsmemo.fileNameFormat": {
+          "type": "string",
+          "default": "${yyyy}-${MM}-${dd}_${title}.${ext}",
+          "description": "Format for the file name. You can use ${yyyy}, ${MM}, ${dd}, ${title}, and ${ext}"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",
     "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
+    "watch": "pnpm run -p \"watch:*\"",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
@@ -31,20 +62,23 @@
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "pnpm run compile && pnpm run lint && pnpm run vscode:prepublish"
   },
   "devDependencies": {
-    "@types/vscode": "^1.100.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/vscode": "^1.100.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
-    "eslint": "^9.25.1",
-    "esbuild": "^0.25.3",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.3",
+    "eslint": "^9.25.1",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.8.3"
   },
-  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977"
+  "dependencies": {
+    "date-fns": "^3.6.0"
+  },
+  "packageManager": "pnpm@10.11.0"
 }
