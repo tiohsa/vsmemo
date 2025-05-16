@@ -131,11 +131,15 @@ export function activate(context: vscode.ExtensionContext) {
 			const sel = editor.selection;
 			const text = editor.document.getText(sel);
 			const lines = text.split('\n');
-			const cells = lines.map(line => line.split(delimiter));
+			const cells = lines.map(line => line.split(delimiter).map(cell => cell.trim()));
 			const colCount = Math.max(...cells.map(arr => arr.length));
-			const header = cells[0].map(cell => cell.trim());
+			const header = Array(colCount).fill(''); // 空のヘッダ
 			const separator = Array(colCount).fill('---');
-			const body = cells.slice(1).map(row => row.map(cell => cell.trim()));
+			const body = cells.map(row => {
+				const filled = Array(colCount).fill('');
+				row.forEach((cell, i) => { filled[i] = cell; });
+				return filled;
+			});
 			const tableLines = [
 				`| ${header.join(' | ')} |`,
 				`| ${separator.join(' | ')} |`,
