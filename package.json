@@ -40,6 +40,14 @@
       {
         "command": "vsmemo.convertSelectionToTable",
         "title": "Convert Selection to Markdown Table"
+      },
+      {
+        "command": "vsmemo.deleteColumn",
+        "title": "Delete Markdown Table Column"
+      },
+      {
+        "command": "vsmemo.deleteRow",
+        "title": "Delete Markdown Table Row"
       }
     ],
     "menus": {
@@ -63,6 +71,14 @@
         {
           "command": "vsmemo.convertSelectionToTable",
           "title": "Convert Selection to Markdown Table"
+        },
+        {
+          "command": "vsmemo.deleteColumn",
+          "title": "Delete Markdown Table Column"
+        },
+        {
+          "command": "vsmemo.deleteRow",
+          "title": "Delete Markdown Table Row"
         }
       ]
     },

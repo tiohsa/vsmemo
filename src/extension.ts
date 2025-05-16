@@ -164,6 +164,64 @@ export function activate(context: vscode.ExtensionContext) {
 			await editor.edit(editBuilder => {
 				editBuilder.replace(sel, tableLines.join('\n'));
 			});
+		}),
+		vscode.commands.registerCommand('vsmemo.deleteColumn', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
+			const cursorLine = editor.selection.active.line;
+			const doc = editor.document;
+			// テーブル範囲検出
+			let start = cursorLine, end = cursorLine;
+			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
+			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
+			const lines: string[] = [];
+			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
+			const table = parseMarkdownTable(lines);
+			// カーソルの列位置を特定
+			const cursorChar = editor.selection.active.character;
+			const relLine = cursorLine - start;
+			const lineText = lines[relLine];
+			let colIdx = 0;
+			const pipeIdxs = [...lineText.matchAll(/\|/g)].map(m => m.index!);
+			for (let i = 0; i < pipeIdxs.length - 1; i++) {
+				if (cursorChar >= pipeIdxs[i] && cursorChar < pipeIdxs[i + 1]) {
+					colIdx = i;
+					break;
+				}
+			}
+			table.header.splice(colIdx, 1);
+			table.separator.splice(colIdx, 1);
+			table.rows = table.rows.map((row: string[]) => { row.splice(colIdx, 1); return row; });
+			const newLines = stringifyMarkdownTable(table);
+			await editor.edit(editBuilder => {
+				const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
+				editBuilder.replace(range, newLines.join('\n'));
+			});
+		}),
+		vscode.commands.registerCommand('vsmemo.deleteRow', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
+			const cursorLine = editor.selection.active.line;
+			const doc = editor.document;
+			// テーブル範囲検出
+			let start = cursorLine, end = cursorLine;
+			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
+			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
+			const lines: string[] = [];
+			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
+			const table = parseMarkdownTable(lines);
+			// 挿入行位置を特定（ヘッダー・セパレータを除いたデータ行のどこを消すか）
+			const relLine = cursorLine - start;
+			// relLine=0:ヘッダー, 1:セパレータ, 2以降:データ
+			let rowIdx = Math.max(0, relLine - 2);
+			if (table.rows.length > 0 && rowIdx < table.rows.length) {
+				table.rows.splice(rowIdx, 1);
+				const newLines = stringifyMarkdownTable(table);
+				await editor.edit(editBuilder => {
+					const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
+					editBuilder.replace(range, newLines.join('\n'));
+				});
+			}
 		})
 	);
 }
