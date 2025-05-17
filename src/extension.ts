@@ -245,6 +245,41 @@ export function activate(context: vscode.ExtensionContext) {
 			const dateFormat = config.get<string>('dateFormat', 'yyyy-MM-dd');
 			await insertTodayDate(editor, dateFormat);
 		}),
+		vscode.commands.registerCommand('vsmemo.listMarkdownFilesInDir', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) {
+				vscode.window.showErrorMessage('No active editor found.');
+				return;
+			}
+			try {
+				const filePath = editor.document.uri.fsPath;
+				const dir = path.dirname(filePath);
+				const files = await fs.promises.readdir(dir);
+				const mdFiles = files.filter(f => f.toLowerCase().endsWith('.md'));
+				if (mdFiles.length === 0) {
+					vscode.window.showInformationMessage('No markdown files found in this directory.');
+					return;
+				}
+				const outFileName = await vscode.window.showInputBox({
+					prompt: 'Enter the output file name (with .md extension)',
+					value: 'markdown_files_list.md',
+					validateInput: (v) => v.trim() === '' ? 'File name is required' : (v.endsWith('.md') ? undefined : 'File name must end with .md')
+				});
+				if (!outFileName) {
+					vscode.window.showErrorMessage('No file name was entered.');
+					return;
+				}
+				const outFilePath = path.join(dir, outFileName);
+				const content = mdFiles.map(f => {
+					const nameWithoutExt = f.replace(/\.md$/i, '');
+					return `[${nameWithoutExt}](./${f})`;
+				}).join('\n');
+				await fs.promises.writeFile(outFilePath, content, 'utf-8');
+				vscode.window.showInformationMessage(`Markdown file list saved to ${outFileName}`);
+			} catch (err: any) {
+				vscode.window.showErrorMessage('Failed to list markdown files: ' + err.message);
+			}
+		}),
 	);
 }
 

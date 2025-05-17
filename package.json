@@ -16,7 +16,7 @@
     "vscode": "^1.100.0"
   },
   "categories": [
-    "Notes"
+    "Other"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -56,6 +56,10 @@
       {
         "command": "vsmemo.insertTodayDate",
         "title": "Insert Today’s Date"
+      },
+      {
+        "command": "vsmemo.listMarkdownFilesInDir",
+        "title": "List Markdown Files in Directory"
       }
     ],
     "menus": {
@@ -95,6 +99,10 @@
         {
           "command": "vsmemo.insertTodayDate",
           "title": "Insert Today’s Date"
+        },
+        {
+          "command": "vsmemo.listMarkdownFilesInDir",
+          "title": "List Markdown Files in Directory"
         }
       ]
     },
