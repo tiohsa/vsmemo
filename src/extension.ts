@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { format as formatDate } from 'date-fns';
 import { generateEmptyTable, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
+import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -105,6 +106,10 @@ export function activate(context: vscode.ExtensionContext) {
 					colIdx = i;
 					break;
 				}
+			}
+			// 右端の列にカーソルがある場合は一番右端に追加
+			if (cursorChar >= pipeIdxs[pipeIdxs.length - 1]) {
+				colIdx = table.header.length;
 			}
 			table.header.splice(colIdx, 0, '');
 			table.separator.splice(colIdx, 0, '---');
@@ -222,7 +227,22 @@ export function activate(context: vscode.ExtensionContext) {
 					editBuilder.replace(range, newLines.join('\n'));
 				});
 			}
-		})
+		}),
+		vscode.commands.registerCommand('vsmemo.wrapCodeBlock', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
+			const config = vscode.workspace.getConfiguration('vsmemo');
+			const defaultLang = config.get<string>('defaultCodeBlockLanguage', 'mermaid');
+			const language = await vscode.window.showInputBox({ prompt: 'コードブロックの言語', value: defaultLang });
+			await wrapCodeBlock(editor, language || defaultLang);
+		}),
+		vscode.commands.registerCommand('vsmemo.insertTodayDate', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
+			const config = vscode.workspace.getConfiguration('vsmemo');
+			const dateFormat = config.get<string>('dateFormat', 'yyyy-MM-dd');
+			await insertTodayDate(editor, dateFormat);
+		}),
 	);
 }
 

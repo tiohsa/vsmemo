@@ -48,6 +48,14 @@
       {
         "command": "vsmemo.deleteRow",
         "title": "Delete Markdown Table Row"
+      },
+      {
+        "command": "vsmemo.wrapCodeBlock",
+        "title": "Wrap Selection in Code Block"
+      },
+      {
+        "command": "vsmemo.insertTodayDate",
+        "title": "Insert Today’s Date"
       }
     ],
     "menus": {
@@ -79,6 +87,14 @@
         {
           "command": "vsmemo.deleteRow",
           "title": "Delete Markdown Table Row"
+        },
+        {
+          "command": "vsmemo.wrapCodeBlock",
+          "title": "Wrap Selection in Code Block"
+        },
+        {
+          "command": "vsmemo.insertTodayDate",
+          "title": "Insert Today’s Date"
         }
       ]
     },
@@ -94,6 +110,16 @@
           "type": "string",
           "default": "${yyyy}-${MM}-${dd}_${title}.${ext}",
           "description": "Format for the file name. You can use ${yyyy}, ${MM}, ${dd}, ${title}, and ${ext}"
+        },
+        "vsmemo.defaultCodeBlockLanguage": {
+          "type": "string",
+          "default": "mermaid",
+          "description": "デフォルトのコードブロック言語"
+        },
+        "vsmemo.dateFormat": {
+          "type": "string",
+          "default": "yyyy-MM-dd",
+          "description": "挿入する今日の日付のフォーマット（date-fns形式）"
         }
       }
     }
