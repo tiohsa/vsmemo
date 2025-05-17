@@ -130,7 +130,7 @@ export function activate(context: vscode.ExtensionContext) {
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const tableLinesInDoc: string[] = []; // Renamed to avoid conflict with 'lines' from parseMarkdownTable
-			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
+			for (let i = start; i <= end; i++) { tableLinesInDoc.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(tableLinesInDoc);
 			// Determine the insertion index for the new row within table.rows.
 			const relLine = cursorLine - start;
