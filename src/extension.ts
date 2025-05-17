@@ -132,10 +132,12 @@ export function activate(context: vscode.ExtensionContext) {
 			const lines: string[] = [];
 			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
-			// Determine insert row position (where to insert among data rows, excluding header/separator)
+			// カーソル行の下の行に挿入
 			const relLine = cursorLine - start;
-			// relLine=0:header, 1:separator, 2 or more:data
-			let rowIdx = Math.max(0, relLine - 2);
+			let rowIdx = Math.max(0, relLine - 1); // ヘッダー・セパレータ考慮
+			if (relLine <= 1) { rowIdx = 0; } // ヘッダー・セパレータの下に挿入
+			else if (relLine >= lines.length - 1) { rowIdx = table.rows.length; } // 一番下端なら末尾
+			else { rowIdx = relLine - 1; }
 			const colCount = table.header.length;
 			table.rows.splice(rowIdx, 0, Array(colCount).fill(''));
 			const newLines = stringifyMarkdownTable(table);
