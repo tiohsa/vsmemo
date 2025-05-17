@@ -3,8 +3,8 @@ import { format as formatDate } from 'date-fns';
 
 export async function wrapCodeBlock(editor: vscode.TextEditor, language: string) {
     const { selection, document } = editor;
-    const text = selection.isEmpty ? "\n" : document.getText(selection);
-    const newText = `\`\`\`${language}\n${text}\`\`\`\n`;
+    const text = selection.isEmpty ? "" : document.getText(selection);
+    const newText = `\`\`\`${language}\n${text}\n\`\`\`\n`;
     await editor.edit(editBuilder => {
         editBuilder.replace(selection.isEmpty ? selection.active : selection, newText);
     });

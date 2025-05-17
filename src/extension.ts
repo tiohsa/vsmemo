@@ -6,6 +6,7 @@ import * as path from 'path';
 import { format as formatDate } from 'date-fns';
 import { generateEmptyTable, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
 import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
+import { SidebarProvider } from './sidebarProvider';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -281,6 +282,12 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 	);
+
+	const sidebarProvider = new SidebarProvider();
+	const treeView = vscode.window.createTreeView('vsmemoSidebarView', {
+		treeDataProvider: sidebarProvider
+	});
+	context.subscriptions.push(treeView);
 }
 
 // This method is called when your extension is deactivated

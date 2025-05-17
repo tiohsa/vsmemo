@@ -4,7 +4,7 @@
   "description": "A VSCode extension that automatically generates date-stamped notes in your workspace.",
   "version": "0.0.1",
   "publisher": "YourPublisherName",
-  "icon": "images/icon.png",
+  "icon": "images/icon.svg",
   "repository": {
     "type": "git",
     "url": "https://github.com/YourUserName/vsmemo.git"
@@ -103,6 +103,23 @@
         {
           "command": "vsmemo.listMarkdownFilesInDir",
           "title": "List Markdown Files in Directory"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vsmemoSidebar",
+          "title": "VSMemo",
+          "icon": "images/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "vsmemoSidebar": [
+        {
+          "id": "vsmemoSidebarView",
+          "name": "Markdown Tools"
         }
       ]
     },
