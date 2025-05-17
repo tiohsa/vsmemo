@@ -1,4 +1,4 @@
-// Markdownテーブル操作用ユーティリティ関数群
+// Utility functions for Markdown table operations
 export function generateEmptyTable(rows: number, cols: number, withHeader = true): string[] {
     const header = Array(cols).fill('Header');
     const separator = Array(cols).fill('---');

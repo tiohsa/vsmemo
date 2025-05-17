@@ -107,7 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
 					break;
 				}
 			}
-			// 右端の列にカーソルがある場合は一番右端に追加
+			// If the cursor is at or after the last pipe in the line, the new column is added at the very end.
 			if (cursorChar >= pipeIdxs[pipeIdxs.length - 1]) {
 				colIdx = table.header.length;
 			}
@@ -129,20 +129,20 @@ export function activate(context: vscode.ExtensionContext) {
 			let start = cursorLine, end = cursorLine;
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
-			const lines: string[] = [];
+			const tableLinesInDoc: string[] = []; // Renamed to avoid conflict with 'lines' from parseMarkdownTable
 			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
-			const table = parseMarkdownTable(lines);
-			// カーソル行の下の行に挿入
+			const table = parseMarkdownTable(tableLinesInDoc);
+			// Determine the insertion index for the new row within table.rows.
 			const relLine = cursorLine - start;
-			let rowIdx = Math.max(0, relLine - 1); // ヘッダー・セパレータ考慮
-			if (relLine <= 1) { rowIdx = 0; } // ヘッダー・セパレータの下に挿入
-			else if (relLine >= lines.length - 1) { rowIdx = table.rows.length; } // 一番下端なら末尾
+			let rowIdx: number; // The index in table.rows where the new row will be inserted.
+			if (relLine <= 1) { rowIdx = 0; } // If cursor is on header/separator, insert new row after the separator (as the first data row).
+			else if (relLine >= tableLinesInDoc.length - 1) { rowIdx = table.rows.length; } // If cursor is on the last table line, append new row to the end.
 			else { rowIdx = relLine - 1; }
 			const colCount = table.header.length;
 			table.rows.splice(rowIdx, 0, Array(colCount).fill(''));
 			const newLines = stringifyMarkdownTable(table);
 			await editor.edit(editBuilder => {
-				const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
+				const range = new vscode.Range(start, 0, end, tableLinesInDoc[tableLinesInDoc.length - 1].length);
 				editBuilder.replace(range, newLines.join('\n'));
 			});
 		}),
@@ -177,7 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!editor) { return; }
 			const cursorLine = editor.selection.active.line;
 			const doc = editor.document;
-			// テーブル範囲検出
+			// Detect table range.
 			let start = cursorLine, end = cursorLine;
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
@@ -188,7 +188,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const cursorChar = editor.selection.active.character;
 			const relLine = cursorLine - start;
 			const lineText = lines[relLine];
-			let colIdx = 0;
+			let colIdx = 0; // Determine the column index based on cursor position.
 			const pipeIdxs = [...lineText.matchAll(/\|/g)].map(m => m.index!);
 			for (let i = 0; i < pipeIdxs.length - 1; i++) {
 				if (cursorChar >= pipeIdxs[i] && cursorChar < pipeIdxs[i + 1]) {
@@ -210,16 +210,16 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!editor) { return; }
 			const cursorLine = editor.selection.active.line;
 			const doc = editor.document;
-			// テーブル範囲検出
+			// Detect table range.
 			let start = cursorLine, end = cursorLine;
 			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
 			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
 			const lines: string[] = [];
 			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
 			const table = parseMarkdownTable(lines);
-			// 挿入行位置を特定（ヘッダー・セパレータを除いたデータ行のどこを消すか）
+			// Determine the index of the data row to delete based on cursor position.
 			const relLine = cursorLine - start;
-			// relLine=0:ヘッダー, 1:セパレータ, 2以降:データ
+			// relLine mapping: 0 for header, 1 for separator, 2+ for data rows.
 			let rowIdx = Math.max(0, relLine - 2);
 			if (table.rows.length > 0 && rowIdx < table.rows.length) {
 				table.rows.splice(rowIdx, 1);
@@ -235,7 +235,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!editor) { return; }
 			const config = vscode.workspace.getConfiguration('vsmemo');
 			const defaultLang = config.get<string>('defaultCodeBlockLanguage', 'mermaid');
-			const language = await vscode.window.showInputBox({ prompt: 'コードブロックの言語', value: defaultLang });
+			const language = await vscode.window.showInputBox({ prompt: 'Language for the code block', value: defaultLang });
 			await wrapCodeBlock(editor, language || defaultLang);
 		}),
 		vscode.commands.registerCommand('vsmemo.insertTodayDate', async () => {
