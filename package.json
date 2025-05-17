@@ -4,7 +4,7 @@
   "description": "A VSCode extension that automatically generates date-stamped notes in your workspace.",
   "version": "0.0.1",
   "publisher": "YourPublisherName",
-  "icon": "images/icon.svg",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/YourUserName/vsmemo.git"
@@ -19,6 +19,18 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:vsmemo.createDateNote",
+    "onCommand:vsmemo.createTableAtPosition",
+    "onCommand:vsmemo.insertColumn",
+    "onCommand:vsmemo.insertRow",
+    "onCommand:vsmemo.convertSelectionToTable",
+    "onCommand:vsmemo.deleteColumn",
+    "onCommand:vsmemo.deleteRow",
+    "onCommand:vsmemo.wrapCodeBlock",
+    "onCommand:vsmemo.insertTodayDate",
+    "onCommand:vsmemo.listMarkdownFilesInDir"
+  ],
   "contributes": {
     "commands": [
       {
@@ -165,7 +177,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "22.15.8",
     "@types/sinon": "^17.0.4",
     "@types/vscode": "^1.100.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
@@ -179,5 +191,8 @@
     "sinon": "^20.0.0",
     "typescript": "^5.8.3"
   },
-  "packageManager": "pnpm@10.11.0"
+  "packageManager": "pnpm@10.11.0",
+  "dependencies": {
+    "vsce": "^2.15.0"
+  }
 }
