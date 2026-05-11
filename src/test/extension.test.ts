@@ -85,9 +85,9 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		mockContext.subscriptions.length = 0; // Clear the array
 	});
 
-	async function executeCreateDateNoteCommand() {
+	async function executeCreateDateNoteCommand(resource?: vscode.Uri) {
 		// The command is registered in `setup` by calling `activate`.
-		await vscode.commands.executeCommand('vsmemo.createDateNote');
+		await vscode.commands.executeCommand('vsmemo.createDateNote', resource);
 	}
 
 	test('Should create a note successfully in a specified directory (new directory)', async () => {
@@ -113,6 +113,47 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		assert(openTextDocumentStub.calledOnceWith(expectedFilePath), 'openTextDocument should be called with correct path');
 		assert(showTextDocumentStub.calledOnceWith(mockDoc), 'showTextDocument should be called with the new document');
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
+	});
+
+	test('Should create a note in the selected Explorer folder when resource is provided', async () => {
+		const selectedDir = path.sep + path.join('test', 'selected-folder');
+		const selectedUri = vscode.Uri.file(selectedDir);
+		const testTitle = 'Explorer Folder Note';
+		const now = new Date();
+		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
+		const expectedFilePath = path.join(selectedDir, expectedFileName);
+
+		showInputBoxStub.resolves(testTitle);
+		statStub.withArgs(selectedDir).resolves({ isDirectory: () => true } as fs.Stats);
+		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
+		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
+		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
+		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
+
+		await executeCreateDateNoteCommand(selectedUri);
+
+		assert(statStub.calledOnceWith(selectedDir), 'fs.stat should check the selected Explorer folder');
+		assert(mkdirStub.notCalled, 'fs.mkdir should not be called for an existing selected Explorer folder');
+		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should create file in selected Explorer folder');
+		assert(openTextDocumentStub.calledOnceWith(expectedFilePath), 'openTextDocument should be called with selected folder file path');
+		assert(showTextDocumentStub.calledOnceWith(mockDoc), 'showTextDocument should be called with the new document');
+		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
+	});
+
+	test('Should show error when selected Explorer resource is not a directory', async () => {
+		const selectedFile = path.sep + path.join('test', 'selected-file.md');
+		const selectedUri = vscode.Uri.file(selectedFile);
+
+		statStub.withArgs(selectedFile).resolves({ isDirectory: () => false, isFile: () => true } as fs.Stats);
+
+		await executeCreateDateNoteCommand(selectedUri);
+
+		assert(statStub.calledOnceWith(selectedFile), 'fs.stat should check the selected Explorer resource');
+		assert(showInputBoxStub.notCalled, 'showInputBox should not be called for non-directory resources');
+		assert(mkdirStub.notCalled, 'fs.mkdir should not be called');
+		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
+		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: ${selectedFile} exists but is not a directory`),
+			'Error message for selected file instead of directory');
 	});
 
 	test('Should use workspaceFolder when ${workspaceFolder} is in createDirectory', async () => {

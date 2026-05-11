@@ -12,18 +12,30 @@ import { SidebarProvider } from './sidebarProvider';
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
-		vscode.commands.registerCommand('vsmemo.createDateNote', async () => {
+		vscode.commands.registerCommand('vsmemo.createDateNote', async (resource?: vscode.Uri) => {
 			try {
 				const config = vscode.workspace.getConfiguration('vsmemo');
-				let dir = config.get<string>('createDirectory')!;
 				const format = config.get<string>('fileNameFormat')!;
-				if (dir.includes('${workspaceFolder}')) {
-					const folders = vscode.workspace.workspaceFolders;
-					if (!folders || folders.length === 0) {
-						vscode.window.showErrorMessage('No workspace folder is open');
+				let dirStat: fs.Stats | undefined;
+				let dir: string;
+
+				if (resource) {
+					dir = resource.fsPath;
+					dirStat = await fs.promises.stat(dir);
+					if (!dirStat.isDirectory()) {
+						vscode.window.showErrorMessage(`Failed to create note: ${dir} exists but is not a directory`);
 						return;
 					}
-					dir = dir.replace('${workspaceFolder}', folders[0].uri.fsPath);
+				} else {
+					dir = config.get<string>('createDirectory')!;
+					if (dir.includes('${workspaceFolder}')) {
+						const folders = vscode.workspace.workspaceFolders;
+						if (!folders || folders.length === 0) {
+							vscode.window.showErrorMessage('No workspace folder is open');
+							return;
+						}
+						dir = dir.replace('${workspaceFolder}', folders[0].uri.fsPath);
+					}
 				}
 
 				const userTitle = await vscode.window.showInputBox({ prompt: 'Please enter a title' });
@@ -32,23 +44,24 @@ export function activate(context: vscode.ExtensionContext) {
 					return;
 				}
 
-				let dirStat: fs.Stats | undefined;
-				try {
-					dirStat = await fs.promises.stat(dir);
-				} catch (err: any) {
-					// Always try mkdir if stat fails (to match test specification)
+				if (!resource) {
 					try {
-						await fs.promises.mkdir(dir, { recursive: true });
-					} catch (mkdirErr: any) {
-						vscode.window.showErrorMessage('Failed to create note: ' + mkdirErr.message);
+						dirStat = await fs.promises.stat(dir);
+					} catch (err: any) {
+						// Always try mkdir if stat fails (to match test specification)
+						try {
+							await fs.promises.mkdir(dir, { recursive: true });
+						} catch (mkdirErr: any) {
+							vscode.window.showErrorMessage('Failed to create note: ' + mkdirErr.message);
+							return;
+						}
+					}
+
+					// If stat succeeds, check if it is a directory
+					if (dirStat && !dirStat.isDirectory()) {
+						vscode.window.showErrorMessage(`Failed to create note: ${dir} exists but is not a directory`);
 						return;
 					}
-				}
-
-				// If stat succeeds, check if it is a directory
-				if (dirStat && !dirStat.isDirectory()) {
-					vscode.window.showErrorMessage(`Failed to create note: ${dir} exists but is not a directory`);
-					return;
 				}
 
 				const userExt = 'md';
