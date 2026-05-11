@@ -54,8 +54,12 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
 		getConfigurationStub.withArgs('vsmemo').returns({
 			get: (key: string) => {
-				if (key === 'createDirectory') return path.sep + path.join('test', 'notes');
-				if (key === 'fileNameFormat') return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				if (key === 'createDirectory') {
+					return path.sep + path.join('test', 'notes');
+				}
+				if (key === 'fileNameFormat') {
+					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				}
 				return undefined;
 			},
 			has: sinon.stub().returns(true),
@@ -168,8 +172,12 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		getConfigurationStub.withArgs('vsmemo').returns({
 			get: (key: string) => {
-				if (key === 'createDirectory') return configuredDir;
-				if (key === 'fileNameFormat') return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				if (key === 'createDirectory') {
+					return configuredDir;
+				}
+				if (key === 'fileNameFormat') {
+					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				}
 				return undefined;
 			},
 			has: sinon.stub().returns(true), inspect: sinon.stub(), update: sinon.stub()
@@ -196,8 +204,12 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	test('Should show error if ${workspaceFolder} is used and no workspace is open', async () => {
 		getConfigurationStub.withArgs('vsmemo').returns({
 			get: (key: string) => {
-				if (key === 'createDirectory') return `\${workspaceFolder}${path.sep}notes`;
-				if (key === 'fileNameFormat') return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				if (key === 'createDirectory') {
+					return `\${workspaceFolder}${path.sep}notes`;
+				}
+				if (key === 'fileNameFormat') {
+					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
+				}
 				return undefined;
 			},
 			has: sinon.stub().returns(true), inspect: sinon.stub(), update: sinon.stub()
