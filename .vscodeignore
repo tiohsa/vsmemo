@@ -1,9 +1,17 @@
 .vscode/**
 .vscode-test/**
+.github/**
+.agents/**
+.codex/**
+.pytest_cache/**
+.venv/**
+graphify-out/**
 out/**
 node_modules/**
 src/**
+prompt.md
 .gitignore
+.graphifyignore
 .yarnrc
 esbuild.js
 vsc-extension-quickstart.md

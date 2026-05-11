@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate tag matches package version
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if [[ "${version}" != "${package_version}" ]]; then
+            echo "Tag version ${version} does not match package.json version ${package_version}." >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "vsix=vsmemo-${version}.vsix" >> "${GITHUB_OUTPUT}"
+
+      - name: Build extension
+        run: pnpm run package
+
+      - name: Package VSIX
+        run: pnpm exec vsce package --no-dependencies --out "${{ steps.version.outputs.vsix }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          VSIX: ${{ steps.version.outputs.vsix }}
+        shell: bash
+        run: |
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${VSIX}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${VSIX}" --generate-notes
+          fi
