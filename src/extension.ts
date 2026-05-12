@@ -7,6 +7,7 @@ import { format as formatDate } from 'date-fns';
 import { generateEmptyTable, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
 import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 import { SidebarProvider } from './sidebarProvider';
+import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -66,18 +67,40 @@ export function activate(context: vscode.ExtensionContext) {
 
 				const userExt = 'md';
 				const now = new Date();
+				const yyyy = formatDate(now, 'yyyy');
+				const MM = formatDate(now, 'MM');
+				const dd = formatDate(now, 'dd');
 				const fileName = format
-					.replace(/\$\{yyyy\}/g, formatDate(now, 'yyyy'))
-					.replace(/\$\{MM\}/g, formatDate(now, 'MM'))
-					.replace(/\$\{dd\}/g, formatDate(now, 'dd'))
+					.replace(/\$\{yyyy\}/g, yyyy)
+					.replace(/\$\{MM\}/g, MM)
+					.replace(/\$\{dd\}/g, dd)
 					.replace(/\$\{title\}/g, userTitle)
 					.replace(/\$\{ext\}/g, userExt);
 
+				const selectedTemplate = await selectDateNoteTemplate(config);
+				if (!selectedTemplate) {
+					return;
+				}
+
+				let content = '';
+				if (selectedTemplate.kind === 'template' && selectedTemplate.templatePath) {
+					content = await renderDateNoteTemplate(selectedTemplate.templatePath, {
+						title: userTitle,
+						yyyy,
+						MM,
+						dd,
+						date: formatDate(now, config.get<string>('dateFormat', 'yyyy-MM-dd'))
+					});
+				}
+
 				const filePath = path.join(dir, fileName);
-				await fs.promises.writeFile(filePath, '');
+				await fs.promises.writeFile(filePath, content);
 				const doc = await vscode.workspace.openTextDocument(filePath);
 				await vscode.window.showTextDocument(doc);
 			} catch (err: any) {
+				if ((err as DateNoteTemplateError).alreadyShown) {
+					return;
+				}
 				vscode.window.showErrorMessage('Failed to create note: ' + err.message);
 			}
 		}),

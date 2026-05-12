@@ -13,19 +13,40 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	let mockContext: vscode.ExtensionContext;
 	let showErrorMessageSpy: sinon.SinonSpy;
 	let showInputBoxStub: sinon.SinonStub;
+	let showQuickPickStub: sinon.SinonStub;
 	let getConfigurationStub: sinon.SinonStub;
 	let workspaceFoldersGetterStub: sinon.SinonStub; // For stubbing the getter of workspace.workspaceFolders
 	let statStub: sinon.SinonStub;
 	let mkdirStub: sinon.SinonStub;
+	let readdirStub: sinon.SinonStub;
+	let readFileStub: sinon.SinonStub;
 	let writeFileStub: sinon.SinonStub;
 	let openTextDocumentStub: sinon.SinonStub;
 	let showTextDocumentStub: sinon.SinonStub;
+	const defaultTemplateDir = path.sep + path.join('test', 'workspace', '.vsmemo', 'templates');
 
 	const mockWorkspaceFolder = {
 		uri: vscode.Uri.file(path.sep + path.join('test', 'workspace')), // Use path.sep for platform-agnostic paths
 		name: 'test-workspace',
 		index: 0
 	};
+
+	function createVsmemoConfig(values: Record<string, unknown> = {}): vscode.WorkspaceConfiguration {
+		const defaults: Record<string, unknown> = {
+			createDirectory: path.sep + path.join('test', 'notes'),
+			fileNameFormat: '${yyyy}-${MM}-${dd}-${title}.${ext}',
+			dateFormat: 'yyyy-MM-dd',
+			dateNoteTemplateDirectory: '${workspaceFolder}/.vsmemo/templates',
+			dateNoteTemplateRequired: false
+		};
+
+		return {
+			get: (key: string, defaultValue?: unknown) => values[key] ?? defaults[key] ?? defaultValue,
+			has: sinon.stub().returns(true),
+			inspect: sinon.stub(),
+			update: sinon.stub()
+		} as unknown as vscode.WorkspaceConfiguration;
+	}
 
 	setup(() => {
 		sandbox = sinon.createSandbox();
@@ -50,28 +71,20 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		showErrorMessageSpy = sandbox.spy(vscode.window, 'showErrorMessage');
 		showInputBoxStub = sandbox.stub(vscode.window, 'showInputBox');
+		showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick');
+		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => items[0]);
 
 		getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
-		getConfigurationStub.withArgs('vsmemo').returns({
-			get: (key: string) => {
-				if (key === 'createDirectory') {
-					return path.sep + path.join('test', 'notes');
-				}
-				if (key === 'fileNameFormat') {
-					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
-				}
-				return undefined;
-			},
-			has: sinon.stub().returns(true),
-			inspect: sinon.stub(),
-			update: sinon.stub()
-		});
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig());
 
 		// Stub the getter for vscode.workspace.workspaceFolders
 		workspaceFoldersGetterStub = sandbox.stub(vscode.workspace, 'workspaceFolders').get(() => [mockWorkspaceFolder]);
 
 		statStub = sandbox.stub(fs.promises, 'stat');
 		mkdirStub = sandbox.stub(fs.promises, 'mkdir');
+		readdirStub = sandbox.stub(fs.promises, 'readdir');
+		readdirStub.withArgs(defaultTemplateDir).rejects(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+		readFileStub = sandbox.stub(fs.promises, 'readFile');
 		writeFileStub = sandbox.stub(fs.promises, 'writeFile');
 
 		openTextDocumentStub = sandbox.stub(vscode.workspace, 'openTextDocument');
@@ -170,18 +183,7 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
 		const expectedFilePath = path.join(expectedDir, expectedFileName);
 
-		getConfigurationStub.withArgs('vsmemo').returns({
-			get: (key: string) => {
-				if (key === 'createDirectory') {
-					return configuredDir;
-				}
-				if (key === 'fileNameFormat') {
-					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
-				}
-				return undefined;
-			},
-			has: sinon.stub().returns(true), inspect: sinon.stub(), update: sinon.stub()
-		});
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: configuredDir }));
 
 		showInputBoxStub.resolves(testTitle);
 		statStub.withArgs(expectedDir).rejects({ code: 'ENOENT' });
@@ -202,18 +204,7 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	});
 
 	test('Should show error if ${workspaceFolder} is used and no workspace is open', async () => {
-		getConfigurationStub.withArgs('vsmemo').returns({
-			get: (key: string) => {
-				if (key === 'createDirectory') {
-					return `\${workspaceFolder}${path.sep}notes`;
-				}
-				if (key === 'fileNameFormat') {
-					return '${yyyy}-${MM}-${dd}-${title}.${ext}';
-				}
-				return undefined;
-			},
-			has: sinon.stub().returns(true), inspect: sinon.stub(), update: sinon.stub()
-		});
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: `\${workspaceFolder}${path.sep}notes` }));
 		// workspaceFoldersGetterStubはgetter stubなので、値を直接セット
 		workspaceFoldersGetterStub.get(() => undefined); // No workspace folders
 
@@ -248,10 +239,7 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 			.replace(/\$\{ext\}/g, 'md');
 		const expectedFilePath = path.join(testDir, expectedFileName);
 
-		getConfigurationStub.withArgs('vsmemo').returns({
-			get: (key: string) => (key === 'createDirectory' ? testDir : '${yyyy}-${MM}-${dd}-${title}.${ext}'),
-			has: sinon.stub().returns(true), inspect: sinon.stub(), update: sinon.stub()
-		});
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: testDir }));
 
 		showInputBoxStub.resolves(testTitle);
 		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats); // Directory exists
@@ -347,5 +335,131 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
 		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: ${testDir} exists but is not a directory`),
 			'Error message for existing file instead of directory');
+	});
+
+	test('Should offer Blank note when default template directory does not exist and templates are optional', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+		const testTitle = 'Optional Template Note';
+		const now = new Date();
+		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
+		const expectedFilePath = path.join(testDir, expectedFileName);
+
+		showInputBoxStub.resolves(testTitle);
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
+		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
+		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
+		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
+
+		await executeCreateDateNoteCommand();
+
+		const quickPickItems = showQuickPickStub.firstCall.args[0] as vscode.QuickPickItem[];
+		assert.deepStrictEqual(quickPickItems.map(item => item.label), ['Blank note']);
+		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should create an empty note');
+		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
+	});
+
+	test('Should render the selected date note template', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+		const testTitle = 'Rendered Template Note';
+		const now = new Date();
+		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
+		const expectedFilePath = path.join(testDir, expectedFileName);
+		const dailyTemplatePath = path.join(defaultTemplateDir, 'daily.md');
+		const template = '# ${title}\n${yyyy}-${MM}-${dd}\n${date}\n${unknown}\n${title}';
+		const expectedContent = `# ${testTitle}\n${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}\n${formatDate(now, 'yyyy/MM/dd')}\n\${unknown}\n${testTitle}`;
+
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ dateFormat: 'yyyy/MM/dd' }));
+		showInputBoxStub.resolves(testTitle);
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+		readdirStub.withArgs(defaultTemplateDir).resolves(['meeting.md', 'ignore.txt', 'daily.md']);
+		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
+			return items.find(item => item.label === 'daily');
+		});
+		readFileStub.withArgs(dailyTemplatePath, 'utf-8').resolves(template);
+		writeFileStub.withArgs(expectedFilePath, expectedContent).resolves(undefined);
+		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
+		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
+		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
+
+		await executeCreateDateNoteCommand();
+
+		const quickPickItems = showQuickPickStub.firstCall.args[0] as vscode.QuickPickItem[];
+		assert.deepStrictEqual(quickPickItems.map(item => item.label), ['Blank note', 'daily', 'meeting']);
+		assert(readFileStub.calledOnceWith(dailyTemplatePath, 'utf-8'), 'selected template should be read as UTF-8');
+		assert(writeFileStub.calledOnceWith(expectedFilePath, expectedContent), 'rendered template should be written');
+		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
+	});
+
+	test('Should not create a note when template QuickPick is canceled', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+
+		showInputBoxStub.resolves('Canceled Template Note');
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+		showQuickPickStub.resolves(undefined);
+
+		await executeCreateDateNoteCommand();
+
+		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
+		assert(openTextDocumentStub.notCalled, 'openTextDocument should not be called');
+		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
+	});
+
+	test('Should show error and not create a note when required template directory is missing', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ dateNoteTemplateRequired: true }));
+		showInputBoxStub.resolves('Required Template Note');
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+
+		await executeCreateDateNoteCommand();
+
+		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: template directory not found: ${defaultTemplateDir}`));
+		assert(showQuickPickStub.notCalled, 'showQuickPick should not be called');
+		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
+	});
+
+	test('Should show error and not create a note when selected template cannot be read', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+		const templatePath = path.join(defaultTemplateDir, 'daily.md');
+
+		showInputBoxStub.resolves('Unreadable Template Note');
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+		readdirStub.withArgs(defaultTemplateDir).resolves(['daily.md']);
+		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
+			return items.find(item => item.label === 'daily');
+		});
+		readFileStub.withArgs(templatePath, 'utf-8').rejects(new Error('permission denied'));
+
+		await executeCreateDateNoteCommand();
+
+		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: failed to read template: ${templatePath}`));
+		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
+		assert(openTextDocumentStub.notCalled, 'openTextDocument should not be called');
+	});
+
+	test('Should create an empty note when Blank note is selected', async () => {
+		const testDir = path.sep + path.join('test', 'notes');
+		const testTitle = 'Explicit Blank Note';
+		const now = new Date();
+		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
+		const expectedFilePath = path.join(testDir, expectedFileName);
+
+		showInputBoxStub.resolves(testTitle);
+		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+		readdirStub.withArgs(defaultTemplateDir).resolves(['daily.md']);
+		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
+			return items.find(item => item.label === 'Blank note');
+		});
+		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
+		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
+		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
+		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
+
+		await executeCreateDateNoteCommand();
+
+		assert(readFileStub.notCalled, 'template file should not be read');
+		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should create an empty note');
+		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
 	});
 });

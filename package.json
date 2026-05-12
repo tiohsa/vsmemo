@@ -2,7 +2,7 @@
   "name": "vsmemo",
   "displayName": "VSMemo",
   "description": "A VSCode extension that automatically generates date-stamped notes in your workspace.",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "publisher": "YourPublisherName",
   "icon": "images/icon.png",
   "repository": {
@@ -164,6 +164,16 @@
           "type": "string",
           "default": "yyyy-MM-dd",
           "description": "挿入する今日の日付のフォーマット（date-fns形式）"
+        },
+        "vsmemo.dateNoteTemplateDirectory": {
+          "type": "string",
+          "default": "${workspaceFolder}/.vsmemo/templates",
+          "description": "Directory containing markdown templates for Create Date Note. Supports ${workspaceFolder}."
+        },
+        "vsmemo.dateNoteTemplateRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, Create Date Note requires selecting a template. If false, blank note creation is also allowed."
         }
       }
     }
