@@ -1,74 +1,106 @@
 # VSMemo
 
-VSMemo is a Visual Studio Code extension that allows you to quickly create date-stamped Markdown notes in your workspace.
+VSMemo is a Visual Studio Code extension designed to streamline your Markdown note-taking and table editing experience. It allows you to quickly create date-stamped Markdown notes in your workspace using customized templates, manage complex Markdown tables with ease, and access all utilities from a dedicated sidebar.
 
 ## Features
 
-- Create a new note file with the current date and a custom title.
-- Customizable note creation directory and file name format (e.g., `${yyyy}-${MM}-${dd}_${title}.md`).
-- **Create Markdown Table at Position**: Insert a Markdown table at the cursor with specified rows/columns.
-- **Insert Markdown Table Column**: Insert a column into a Markdown table at the cursor position.
-- **Insert Markdown Table Row**: Insert a row into a Markdown table at the cursor position.
-- **Convert Selection to Markdown Table**: Convert selected text (with a delimiter) into a Markdown table.
-- **Delete Markdown Table Column**: Delete the column at the cursor position in a Markdown table.
-- **Delete Markdown Table Row**: Delete the row at the cursor position in a Markdown table.
-- **Wrap Selection in Code Block**: Wrap the selected text in a code block with a specified language.
-- **Insert Today's Date**: Insert today's date at the cursor position in a configurable format.
-- **List Markdown Files in Directory**: Create a Markdown file listing all Markdown files in the current file's directory with links.
+- **Date Note Creation**: Easily spin up date-stamped Markdown notes with custom titles in a designated directory.
+- **Date Note Templates**: Configure and use custom Markdown templates for your date notes with dynamic variables.
+- **Dedicated Sidebar**: Access all VSMemo commands directly from the **VSMemo / Markdown Tools** sidebar in the Activity Bar.
+- **Advanced Markdown Table Utilities**:
+  - **Create Table**: Insert a Markdown table at the cursor with specified rows, columns, and optional headers.
+  - **Edit Columns/Rows**: Insert and delete columns or rows at the cursor position.
+  - **Convert Selection**: Transform delimited text (e.g., CSV, TSV) directly into a clean Markdown table.
+- **Text Wrapping & Formatting**:
+  - **Wrap in Code Block**: Wrap your selection in a code block with a specified language.
+  - **Insert Today's Date**: Insert today's date in your preferred format.
+  - **List Markdown Files**: Generate an index file listing all Markdown files in the current folder with links.
 
-## Requirements
+---
 
-- Visual Studio Code v1.100.0 or later.
+## Dedicated Sidebar
 
+VSMemo adds a custom icon to your Activity Bar. Clicking it opens the **Markdown Tools** sidebar, which displays all available commands. Click any command in the sidebar to execute it immediately without having to open the Command Palette.
+
+---
+
+## Date Note Templates
+
+VSMemo allows you to automate note creation using Markdown templates.
+
+### How to use:
+1. Create a directory for your templates (e.g. `.vsmemo/templates` in your workspace root).
+2. Create Markdown template files (with `.md` extension) in that directory.
+3. In your templates, you can use the following dynamic variables, which will be automatically replaced when the note is created:
+   - `${title}`: The title you enter when prompted.
+   - `${yyyy}`: Current year (4 digits, e.g., `2026`).
+   - `${MM}`: Current month (2 digits, e.g., `05`).
+   - `${dd}`: Current day (2 digits, e.g., `25`).
+   - `${date}`: Today's date formatted according to the `vsmemo.dateFormat` setting.
+
+### Example Template:
+```markdown
+# ${title}
+Date: ${date}
+
+## Overview
+- Created on ${yyyy}-${MM}-${dd}
+
+## Notes
+- 
+```
+
+---
 
 ## Usage
 
-1. Open the command palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
-2. Run one of the following commands:
-   - **Create Date Note**: Create a new date-stamped note.
-   - **Create Markdown Table at Position**: Insert a Markdown table at the cursor. You will be prompted for row/column count and header.
-   - **Insert Markdown Table Column**: Select a Markdown table, run this command, and specify the column index to insert.
-   - **Insert Markdown Table Row**: Select a Markdown table, run this command, and specify the row index to insert.
-   - **Convert Selection to Markdown Table**: Select delimited text, run this command, and specify the delimiter (e.g., comma, tab).   
-   - **Delete Markdown Table Column**: Position the cursor within a Markdown table and run this command to delete the column.
-   - **Delete Markdown Table Row**: Position the cursor within a Markdown table and run this command to delete the row.
-   - **Wrap Selection in Code Block**: Select the text you want to wrap, run this command, and optionally specify the language.
-   - **Insert Today's Date**: Run this command to insert today's date at the cursor.
-   - **List Markdown Files in Directory**: Run this command to generate a list of Markdown files in the current directory.
-3. Follow the prompts to complete the action.
+1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`) or open the **VSMemo** Sidebar.
+2. Run or click one of the following commands:
+   - **Create Date Note**: Prompts you for a title, lets you select a template, and creates a note file.
+   - **Create Markdown Table at Position**: Insert a table at the cursor. You will be prompted for row/column count and header.
+   - **Insert Markdown Table Column**: Inserts a new column at the cursor's column position.
+   - **Insert Markdown Table Row**: Inserts a new row below/above the cursor's row position.
+   - **Convert Selection to Markdown Table**: Converts selected delimited text into a Markdown table.
+   - **Delete Markdown Table Column**: Deletes the column at the cursor.
+   - **Delete Markdown Table Row**: Deletes the row at the cursor.
+   - **Wrap Selection in Code Block**: Wraps selected text in a code block with a specified language (defaults to `mermaid`).
+   - **Insert Today's Date**: Inserts today's date at the cursor.
+   - **List Markdown Files in Directory**: Generates an index page linking all Markdown files in the current folder.
+
+---
 
 ## Extension Settings
 
 This extension contributes the following settings:
 
-- `vsmemo.createDirectory`: Absolute path or workspace-relative path to the directory where notes will be created.
-  - Default: `${workspaceFolder}/notes`
-- `vsmemo.fileNameFormat`: Format for the file name. You can use `${yyyy}`, `${MM}`, `${dd}`, `${title}`, and `${ext}`.
-  - Default: `${yyyy}-${MM}-${dd}_${title}.${ext}`
-- `vsmemo.defaultCodeBlockLanguage`: Default language for code blocks when wrapping selections.
-  - Default: `mermaid`
-- `vsmemo.dateFormat`: Format for inserting today's date (using date-fns format).
-  - Default: `yyyy-MM-dd`
+* `vsmemo.createDirectory`: Path to the directory where notes will be created. Supports `${workspaceFolder}`.
+  * Default: `${workspaceFolder}/notes`
+* `vsmemo.fileNameFormat`: Name format for the note files.
+  * Default: `${yyyy}-${MM}-${dd}_${title}.${ext}`
+* `vsmemo.defaultCodeBlockLanguage`: Default language for wrapping code blocks.
+  * Default: `mermaid`
+* `vsmemo.dateFormat`: Date format used for `${date}` in templates and the "Insert Today's Date" command (date-fns format).
+  * Default: `yyyy-MM-dd`
+* `vsmemo.dateNoteTemplateDirectory`: Directory containing markdown templates. Supports `${workspaceFolder}`.
+  * Default: `${workspaceFolder}/.vsmemo/templates`
+* `vsmemo.dateNoteTemplateRequired`: If `true`, you must choose a template when creating a note (blank note option is disabled).
+  * Default: `false`
 
-## Known Issues
-
-- None at this time.
+---
 
 ## Release Notes
+
+### 0.1.0
+- Added **Sidebar View** (`Markdown Tools`) in the activity bar for easier access to all commands.
+- Added **Date Note Templates** feature to allow customized markdown templates for new notes.
+- Supports template variable interpolation (`${title}`, `${yyyy}`, `${MM}`, `${dd}`, `${date}`).
+- Added options to require template selection and specify template directory path.
+
 ### 0.0.1 (Unreleased)
 - Initial release.
 - Added "Create Date Note" command.
-- Added Markdown table editing features:
-  - Create Markdown Table at Position
-  - Insert Markdown Table Column
-  - Insert Markdown Table Row
-  - Convert Selection to Markdown Table
-  - Delete Markdown Table Column
-  - Delete Markdown Table Row
-- Added other Markdown editing utilities:
-  - Wrap Selection in Code Block
-  - Insert Today's Date
-  - List Markdown Files in Directory
+- Added Markdown table editing features.
+- Added basic Markdown utilities (Code Block wrap, Date insertion, File list).
 
 ---
 
@@ -79,5 +111,3 @@ Feel free to open issues or pull requests on [GitHub](https://github.com/YourUse
 ## License
 
 MIT
-
-**Enjoy taking notes with VSMemo!**
