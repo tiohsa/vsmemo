@@ -39,6 +39,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<CommandItem> {
             { id: 'vsmemo.convertSelectionToTable', label: 'Convert Selection to Table', icon: 'symbol-key' },
             { id: 'vsmemo.deleteColumn', label: 'Delete Column', icon: 'remove' },
             { id: 'vsmemo.deleteRow', label: 'Delete Row', icon: 'remove' },
+            { id: 'vsmemo.formatTableAtCursor', label: 'Format Table', icon: 'symbol-structure' },
             { id: 'vsmemo.wrapCodeBlock', label: 'Wrap Code Block', icon: 'code' },
             { id: 'vsmemo.insertTodayDate', label: 'Insert Today Date', icon: 'calendar' },
             { id: 'vsmemo.listMarkdownFilesInDir', label: 'List Markdown Files', icon: 'list-unordered' },

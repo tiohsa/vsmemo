@@ -19,6 +19,9 @@
     "Other"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:vsmemo.formatTableAtCursor"
+  ],
   "contributes": {
     "commands": [
       {
@@ -48,6 +51,10 @@
       {
         "command": "vsmemo.deleteRow",
         "title": "Delete Markdown Table Row"
+      },
+      {
+        "command": "vsmemo.formatTableAtCursor",
+        "title": "Format Markdown Table at Cursor"
       },
       {
         "command": "vsmemo.wrapCodeBlock",
@@ -107,6 +114,10 @@
         {
           "command": "vsmemo.deleteRow",
           "title": "Delete Markdown Table Row"
+        },
+        {
+          "command": "vsmemo.formatTableAtCursor",
+          "title": "Format Markdown Table at Cursor"
         },
         {
           "command": "vsmemo.wrapCodeBlock",
@@ -189,6 +200,11 @@
           "type": "string",
           "default": "yyyy-MM-dd",
           "description": "挿入する今日の日付のフォーマット（date-fns形式）"
+        },
+        "vsmemo.markdownTable.autoFormatAfterEdit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically format Markdown tables after table edit commands."
         },
         "vsmemo.dateNoteTemplateDirectory": {
           "type": "string",

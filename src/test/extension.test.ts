@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { format as formatDate } from 'date-fns';
 import { activate } from '../extension';
+import { formatMarkdownTable, parseMarkdownTable, stringifyMarkdownTable } from '../markdownTableUtils';
 
 // --- Global Indirection Wrappers ---
 let currentShowErrorMessageSpy: any;
@@ -1160,6 +1161,277 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
 		assert(showErrorMessageSpy.calledOnceWith('Move failed. No files were moved.'));
+	});
+});
+
+suite('Markdown table formatting utilities', () => {
+	test('formats column widths, regenerates separators, and fills missing cells', () => {
+		const table = parseMarkdownTable([
+			'| Name | Age | Note |',
+			'| - | broken | -- |',
+			'| Alice | 30 | longer |',
+			'| Bob | 8 |'
+		]);
+
+		assert.deepStrictEqual(formatMarkdownTable(table), [
+			'| Name  | Age | Note   |',
+			'| ----- | --- | ------ |',
+			'| Alice | 30  | longer |',
+			'| Bob   | 8   |        |'
+		]);
+	});
+
+	test('keeps the legacy stringify output when formatting is disabled', () => {
+		const table = parseMarkdownTable([
+			'| A | B |',
+			'| --- | --- |',
+			'| 1 | 2 |'
+		]);
+
+		assert.deepStrictEqual(stringifyMarkdownTable(table, false), [
+			'| A | B |',
+			'| --- | --- |',
+			'| 1 | 2 |'
+		]);
+	});
+
+	test('T-104: formats an empty table-like structure without crashing', () => {
+		assert.doesNotThrow(() => formatMarkdownTable({ header: [], separator: [], rows: [] }));
+	});
+
+	test('preserves Markdown column alignment markers', () => {
+		const table = parseMarkdownTable([
+			'| Left | Center | Right |',
+			'| :--- | :---: | ---: |',
+			'| a | b | c |'
+		]);
+
+		assert.deepStrictEqual(formatMarkdownTable(table), [
+			'| Left | Center | Right |',
+			'| :---- | :------: | -----: |',
+			'| a    | b      | c     |'
+		]);
+	});
+
+	test('normalizes separator column count mismatches without crashing', () => {
+		const table = parseMarkdownTable([
+			'| A |',
+			'| - | -- |',
+			'| 1 |'
+		]);
+
+		assert.deepStrictEqual(formatMarkdownTable(table), [
+			'| A   |     |',
+			'| --- | --- |',
+			'| 1   |     |'
+		]);
+	});
+});
+
+suite('Extension Test Suite - Markdown table commands', () => {
+	let sandbox: sinon.SinonSandbox;
+	let showErrorMessageSpy: sinon.SinonSpy;
+	let showInformationMessageSpy: sinon.SinonSpy;
+	let showInputBoxStub: sinon.SinonStub;
+	let showQuickPickStub: sinon.SinonStub;
+	let getConfigurationStub: sinon.SinonStub;
+
+	type MockEditor = {
+		editor: vscode.TextEditor;
+		replacements: Array<{ range: vscode.Range; text: string }>;
+		insertions: Array<{ position: vscode.Position; text: string }>;
+	};
+
+	function createConfig(autoFormatAfterEdit = true): vscode.WorkspaceConfiguration {
+		return {
+			get: (key: string, defaultValue?: unknown) =>
+				key === 'markdownTable.autoFormatAfterEdit' ? autoFormatAfterEdit : defaultValue
+		} as unknown as vscode.WorkspaceConfiguration;
+	}
+
+	function createEditor(
+		lines: string[],
+		cursorLine: number,
+		cursorCharacter: number,
+		selectedText = '',
+		languageId = 'markdown'
+	): MockEditor {
+		const replacements: Array<{ range: vscode.Range; text: string }> = [];
+		const insertions: Array<{ position: vscode.Position; text: string }> = [];
+		const active = new vscode.Position(cursorLine, cursorCharacter);
+		const selection = new vscode.Selection(active, active);
+		const document = {
+			lineCount: lines.length,
+			lineAt: (line: number) => ({ text: lines[line] }),
+			getText: () => selectedText,
+			languageId
+		} as unknown as vscode.TextDocument;
+		const editor = {
+			document,
+			selection,
+			edit: async (callback: (editBuilder: vscode.TextEditorEdit) => void) => {
+				callback({
+					replace: (range: vscode.Range, text: string) => replacements.push({ range, text }),
+					insert: (position: vscode.Position, text: string) => insertions.push({ position, text })
+				} as unknown as vscode.TextEditorEdit);
+				return true;
+			}
+		} as unknown as vscode.TextEditor;
+
+		return { editor, replacements, insertions };
+	}
+
+	setup(() => {
+		sandbox = sinon.createSandbox();
+		showErrorMessageSpy = sandbox.spy();
+		currentShowErrorMessageSpy = showErrorMessageSpy;
+		showInformationMessageSpy = sandbox.spy();
+		currentShowInformationMessageSpy = showInformationMessageSpy;
+		showInputBoxStub = sandbox.stub();
+		currentShowInputBoxStub = showInputBoxStub;
+		showQuickPickStub = sandbox.stub();
+		currentShowQuickPickStub = showQuickPickStub;
+		getConfigurationStub = sandbox.stub();
+		currentGetConfigurationStub = getConfigurationStub;
+		getConfigurationStub.withArgs('vsmemo').returns(createConfig());
+		ensureActivated(sharedMockContext);
+	});
+
+	teardown(() => {
+		sandbox.restore();
+		currentShowErrorMessageSpy = undefined;
+		currentShowInformationMessageSpy = undefined;
+		currentShowInputBoxStub = undefined;
+		currentShowQuickPickStub = undefined;
+		currentGetConfigurationStub = undefined;
+		currentActiveTextEditorStub = undefined;
+	});
+
+	test('T-001: deleteColumn formats the remaining table', async () => {
+		const mock = createEditor(['| Name | Age |', '| --- | --- |', '| Alice | 30 |'], 0, 10);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.deleteColumn');
+
+		assert.strictEqual(mock.replacements[0].text, '| Name  |\n| ----- |\n| Alice |');
+	});
+
+	test('T-002: deleteRow keeps the formatted table structure', async () => {
+		const mock = createEditor(['| A | B |', '| --- | --- |', '| 1 | 2 |', '| 3 | 4 |'], 3, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.deleteRow');
+
+		assert.strictEqual(mock.replacements[0].text, '| A   | B   |\n| --- | --- |\n| 1   | 2   |');
+	});
+
+	test('T-003: insertColumn formats the added column', async () => {
+		const mock = createEditor(['| Name | Age |', '| --- | --- |', '| Alice | 30 |'], 0, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.insertColumn');
+
+		assert.strictEqual(mock.replacements[0].text, '|     | Name  | Age |\n| --- | ----- | --- |\n|     | Alice | 30  |');
+	});
+
+	test('T-004: insertRow formats the added empty row', async () => {
+		const mock = createEditor(['| Long | B |', '| --- | --- |', '| 1 | 2 |'], 2, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.insertRow');
+
+		assert.strictEqual(mock.replacements[0].text, '| Long | B   |\n| ---- | --- |\n| 1    | 2   |\n|      |     |');
+	});
+
+	test('AC-004: insertRow preserves legacy output when auto format is disabled', async () => {
+		getConfigurationStub.withArgs('vsmemo').returns(createConfig(false));
+		const mock = createEditor(['| A | B |', '| --- | --- |', '| 1 | 2 |'], 2, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.insertRow');
+
+		assert.strictEqual(mock.replacements[0].text, '| A | B |\n| --- | --- |\n| 1 | 2 |\n|  |  |');
+	});
+
+	test('T-005: convertSelectionToTable formats the generated table', async () => {
+		showInputBoxStub.resolves(',');
+		const mock = createEditor(['alpha,b'], 0, 0, 'alpha,b\nc,d');
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.convertSelectionToTable');
+
+		assert.strictEqual(mock.replacements[0].text, '|       |     |\n| ----- | --- |\n| alpha | b   |\n| c     | d   |');
+	});
+
+	test('R-001: createTableAtPosition formats the generated table', async () => {
+		showInputBoxStub.onFirstCall().resolves('2');
+		showInputBoxStub.onSecondCall().resolves('2');
+		showQuickPickStub.resolves('With header');
+		const mock = createEditor([''], 0, 0);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.createTableAtPosition');
+
+		assert.strictEqual(mock.insertions[0].text, '| Header | Header |\n| ------ | ------ |\n|        |        |\n');
+	});
+
+	test('T-006: formatTableAtCursor changes only the table around the cursor', async () => {
+		const mock = createEditor(['before', '| A | Longer |', '| - | -- |', '| 1 | value |', 'after'], 2, 3);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.formatTableAtCursor');
+
+		assert.strictEqual(mock.replacements[0].range.start.line, 1);
+		assert.strictEqual(mock.replacements[0].range.end.line, 3);
+		assert.strictEqual(mock.replacements[0].text, '| A   | Longer |\n| --- | ------ |\n| 1   | value  |');
+	});
+
+	test('T-101: formatTableAtCursor does not edit outside a table', async () => {
+		const mock = createEditor(['plain text'], 0, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.formatTableAtCursor');
+
+		assert.strictEqual(mock.replacements.length, 0);
+		assert(showInformationMessageSpy.calledOnceWith('Cursor is not inside a Markdown table.'));
+	});
+
+	test('does not format consecutive pipe-delimited lines without a separator', async () => {
+		const mock = createEditor(['| first pipe-delimited line |', '| second pipe-delimited line |'], 0, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.formatTableAtCursor');
+
+		assert.strictEqual(mock.replacements.length, 0);
+		assert(showInformationMessageSpy.calledOnceWith('Cursor is not inside a Markdown table.'));
+	});
+
+	test('formats indented tables without adding empty columns', async () => {
+		const mock = createEditor(['  | A | B |  ', '  | --- | --- |  ', '  | 1 | 2 |  '], 2, 4);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.formatTableAtCursor');
+
+		assert.strictEqual(mock.replacements[0].text, '| A   | B   |\n| --- | --- |\n| 1   | 2   |');
+	});
+
+	test('T-105: formatTableAtCursor performs the minimum table-only edit in a non-Markdown document', async () => {
+		const mock = createEditor(['| A | B |', '| - | - |', '| 1 | 2 |'], 2, 2, '', 'plaintext');
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.formatTableAtCursor');
+
+		assert.strictEqual(mock.replacements[0].text, '| A   | B   |\n| --- | --- |\n| 1   | 2   |');
+	});
+
+	test('T-102: deleteColumn refuses to remove the last column', async () => {
+		const mock = createEditor(['| A |', '| --- |', '| 1 |'], 0, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+
+		await vscode.commands.executeCommand('vsmemo.deleteColumn');
+
+		assert.strictEqual(mock.replacements.length, 0);
+		assert(showErrorMessageSpy.calledOnceWith('Cannot delete the last column of a Markdown table.'));
 	});
 });
 

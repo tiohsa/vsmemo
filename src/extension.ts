@@ -4,12 +4,72 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { format as formatDate } from 'date-fns';
-import { generateEmptyTable, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
+import { generateEmptyTable, isMarkdownTableSeparator, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
 import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 import { SidebarProvider } from './sidebarProvider';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
 import { moveCore } from './moveCore';
+
+const markdownTableLinePattern = /^\s*\|.*\|\s*$/;
+
+type TableAtCursor = {
+	start: number;
+	end: number;
+	lines: string[];
+	table: ReturnType<typeof parseMarkdownTable>;
+};
+
+function getTableAtCursor(editor: vscode.TextEditor): TableAtCursor | undefined {
+	const cursorLine = editor.selection.active.line;
+	const doc = editor.document;
+	if (!markdownTableLinePattern.test(doc.lineAt(cursorLine).text)) {
+		return undefined;
+	}
+
+	let start = cursorLine;
+	let end = cursorLine;
+	while (start > 0 && markdownTableLinePattern.test(doc.lineAt(start - 1).text)) { start--; }
+	while (end < doc.lineCount - 1 && markdownTableLinePattern.test(doc.lineAt(end + 1).text)) { end++; }
+
+	const lines: string[] = [];
+	for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
+	if (lines.length < 2) {
+		return undefined;
+	}
+
+	const table = parseMarkdownTable(lines);
+	if (table.header.length === 0 || !isMarkdownTableSeparator(table.separator)) {
+		return undefined;
+	}
+
+	return { start, end, lines, table };
+}
+
+function shouldAutoFormatMarkdownTables(): boolean {
+	return vscode.workspace.getConfiguration('vsmemo').get<boolean>('markdownTable.autoFormatAfterEdit', true);
+}
+
+async function replaceTable(
+	editor: vscode.TextEditor,
+	tableAtCursor: TableAtCursor,
+	format = shouldAutoFormatMarkdownTables()
+): Promise<boolean> {
+	const newLines = stringifyMarkdownTable(tableAtCursor.table, format);
+	const applied = await editor.edit(editBuilder => {
+		const range = new vscode.Range(
+			tableAtCursor.start,
+			0,
+			tableAtCursor.end,
+			tableAtCursor.lines[tableAtCursor.lines.length - 1].length
+		);
+		editBuilder.replace(range, newLines.join('\n'));
+	});
+	if (!applied) {
+		vscode.window.showErrorMessage('Failed to update Markdown table.');
+	}
+	return applied;
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -116,27 +176,27 @@ export function activate(context: vscode.ExtensionContext) {
 			const rows = parseInt(rowStr, 10);
 			const cols = parseInt(colStr, 10);
 			const withHeader = await vscode.window.showQuickPick(['With header', 'Without header'], { placeHolder: 'Include header row?' });
-			const tableLines = generateEmptyTable(rows, cols, withHeader === 'With header');
-			await editor.edit(editBuilder => {
+			let tableLines = generateEmptyTable(rows, cols, withHeader === 'With header');
+			if (shouldAutoFormatMarkdownTables()) {
+				tableLines = stringifyMarkdownTable(parseMarkdownTable(tableLines));
+			}
+			const applied = await editor.edit(editBuilder => {
 				const pos = editor.selection.active;
 				editBuilder.insert(pos, tableLines.join('\n') + '\n');
 			});
+			if (!applied) {
+				vscode.window.showErrorMessage('Failed to create Markdown table.');
+			}
 		}),
 		vscode.commands.registerCommand('vsmemo.insertColumn', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const cursorLine = editor.selection.active.line;
-			const doc = editor.document;
-			// Detect table range
-			let start = cursorLine, end = cursorLine;
-			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
-			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
-			const lines: string[] = [];
-			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
-			const table = parseMarkdownTable(lines);
+			const tableAtCursor = getTableAtCursor(editor);
+			if (!tableAtCursor) { return; }
+			const { lines, table } = tableAtCursor;
 			// Determine cursor column position
 			const cursorChar = editor.selection.active.character;
-			const relLine = cursorLine - start;
+			const relLine = editor.selection.active.line - tableAtCursor.start;
 			const lineText = lines[relLine];
 			let colIdx = 0;
 			const pipeIdxs = [...lineText.matchAll(/\|/g)].map(m => m.index!);
@@ -153,37 +213,23 @@ export function activate(context: vscode.ExtensionContext) {
 			table.header.splice(colIdx, 0, '');
 			table.separator.splice(colIdx, 0, '---');
 			table.rows = table.rows.map((row: string[]) => { row.splice(colIdx, 0, ''); return row; });
-			const newLines = stringifyMarkdownTable(table);
-			await editor.edit(editBuilder => {
-				const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
-				editBuilder.replace(range, newLines.join('\n'));
-			});
+			await replaceTable(editor, tableAtCursor);
 		}),
 		vscode.commands.registerCommand('vsmemo.insertRow', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const cursorLine = editor.selection.active.line;
-			const doc = editor.document;
-			// Detect table range
-			let start = cursorLine, end = cursorLine;
-			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
-			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
-			const tableLinesInDoc: string[] = []; // Renamed to avoid conflict with 'lines' from parseMarkdownTable
-			for (let i = start; i <= end; i++) { tableLinesInDoc.push(doc.lineAt(i).text); }
-			const table = parseMarkdownTable(tableLinesInDoc);
+			const tableAtCursor = getTableAtCursor(editor);
+			if (!tableAtCursor) { return; }
+			const table = tableAtCursor.table;
 			// Determine the insertion index for the new row within table.rows.
-			const relLine = cursorLine - start;
+			const relLine = editor.selection.active.line - tableAtCursor.start;
 			let rowIdx: number; // The index in table.rows where the new row will be inserted.
 			if (relLine <= 1) { rowIdx = 0; } // If cursor is on header/separator, insert new row after the separator (as the first data row).
-			else if (relLine >= tableLinesInDoc.length - 1) { rowIdx = table.rows.length; } // If cursor is on the last table line, append new row to the end.
+			else if (relLine >= tableAtCursor.lines.length - 1) { rowIdx = table.rows.length; } // If cursor is on the last table line, append new row to the end.
 			else { rowIdx = relLine - 1; }
 			const colCount = table.header.length;
 			table.rows.splice(rowIdx, 0, Array(colCount).fill(''));
-			const newLines = stringifyMarkdownTable(table);
-			await editor.edit(editBuilder => {
-				const range = new vscode.Range(start, 0, end, tableLinesInDoc[tableLinesInDoc.length - 1].length);
-				editBuilder.replace(range, newLines.join('\n'));
-			});
+			await replaceTable(editor, tableAtCursor);
 		}),
 		vscode.commands.registerCommand('vsmemo.convertSelectionToTable', async () => {
 			const editor = vscode.window.activeTextEditor;
@@ -202,30 +248,27 @@ export function activate(context: vscode.ExtensionContext) {
 				row.forEach((cell, i) => { filled[i] = cell; });
 				return filled;
 			});
-			const tableLines = [
-				`| ${header.join(' | ')} |`,
-				`| ${separator.join(' | ')} |`,
-				...body.map(row => `| ${row.join(' | ')} |`)
-			];
-			await editor.edit(editBuilder => {
+			const tableLines = stringifyMarkdownTable({ header, separator, rows: body }, shouldAutoFormatMarkdownTables());
+			const applied = await editor.edit(editBuilder => {
 				editBuilder.replace(sel, tableLines.join('\n'));
 			});
+			if (!applied) {
+				vscode.window.showErrorMessage('Failed to convert selection to Markdown table.');
+			}
 		}),
 		vscode.commands.registerCommand('vsmemo.deleteColumn', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const cursorLine = editor.selection.active.line;
-			const doc = editor.document;
-			// Detect table range.
-			let start = cursorLine, end = cursorLine;
-			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
-			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
-			const lines: string[] = [];
-			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
-			const table = parseMarkdownTable(lines);
+			const tableAtCursor = getTableAtCursor(editor);
+			if (!tableAtCursor) { return; }
+			const { lines, table } = tableAtCursor;
+			if (table.header.length <= 1) {
+				vscode.window.showErrorMessage('Cannot delete the last column of a Markdown table.');
+				return;
+			}
 			// カーソルの列位置を特定
 			const cursorChar = editor.selection.active.character;
-			const relLine = cursorLine - start;
+			const relLine = editor.selection.active.line - tableAtCursor.start;
 			const lineText = lines[relLine];
 			let colIdx = 0; // Determine the column index based on cursor position.
 			const pipeIdxs = [...lineText.matchAll(/\|/g)].map(m => m.index!);
@@ -238,36 +281,32 @@ export function activate(context: vscode.ExtensionContext) {
 			table.header.splice(colIdx, 1);
 			table.separator.splice(colIdx, 1);
 			table.rows = table.rows.map((row: string[]) => { row.splice(colIdx, 1); return row; });
-			const newLines = stringifyMarkdownTable(table);
-			await editor.edit(editBuilder => {
-				const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
-				editBuilder.replace(range, newLines.join('\n'));
-			});
+			await replaceTable(editor, tableAtCursor);
 		}),
 		vscode.commands.registerCommand('vsmemo.deleteRow', async () => {
 			const editor = vscode.window.activeTextEditor;
 			if (!editor) { return; }
-			const cursorLine = editor.selection.active.line;
-			const doc = editor.document;
-			// Detect table range.
-			let start = cursorLine, end = cursorLine;
-			while (start > 0 && /^\s*\|.*\|\s*$/.test(doc.lineAt(start - 1).text)) { start--; }
-			while (end < doc.lineCount - 1 && /^\s*\|.*\|\s*$/.test(doc.lineAt(end + 1).text)) { end++; }
-			const lines: string[] = [];
-			for (let i = start; i <= end; i++) { lines.push(doc.lineAt(i).text); }
-			const table = parseMarkdownTable(lines);
+			const tableAtCursor = getTableAtCursor(editor);
+			if (!tableAtCursor) { return; }
+			const table = tableAtCursor.table;
 			// Determine the index of the data row to delete based on cursor position.
-			const relLine = cursorLine - start;
+			const relLine = editor.selection.active.line - tableAtCursor.start;
 			// relLine mapping: 0 for header, 1 for separator, 2+ for data rows.
 			let rowIdx = Math.max(0, relLine - 2);
 			if (table.rows.length > 0 && rowIdx < table.rows.length) {
 				table.rows.splice(rowIdx, 1);
-				const newLines = stringifyMarkdownTable(table);
-				await editor.edit(editBuilder => {
-					const range = new vscode.Range(start, 0, end, lines[lines.length - 1].length);
-					editBuilder.replace(range, newLines.join('\n'));
-				});
+				await replaceTable(editor, tableAtCursor);
 			}
+		}),
+		vscode.commands.registerCommand('vsmemo.formatTableAtCursor', async () => {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
+			const tableAtCursor = getTableAtCursor(editor);
+			if (!tableAtCursor) {
+				vscode.window.showInformationMessage('Cursor is not inside a Markdown table.');
+				return;
+			}
+			await replaceTable(editor, tableAtCursor, true);
 		}),
 		vscode.commands.registerCommand('vsmemo.wrapCodeBlock', async () => {
 			const editor = vscode.window.activeTextEditor;
