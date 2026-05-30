@@ -463,3 +463,321 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
 	});
 });
+
+suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
+	let sandbox: sinon.SinonSandbox;
+	let showErrorMessageSpy: sinon.SinonSpy;
+	let showWarningMessageSpy: sinon.SinonSpy;
+	let showInformationMessageSpy: sinon.SinonSpy;
+	let showQuickPickStub: sinon.SinonStub;
+	let getConfigurationStub: sinon.SinonStub;
+	let workspaceFoldersGetterStub: sinon.SinonStub;
+	let fsStatStub: sinon.SinonStub;
+	let fsRenameStub: sinon.SinonStub;
+	let fsCreateDirectoryStub: sinon.SinonStub;
+
+	const mockWorkspaceFolder = {
+		uri: vscode.Uri.file('/mock/workspace'),
+		name: 'mock-workspace',
+		index: 0
+	};
+
+	setup(() => {
+		sandbox = sinon.createSandbox();
+
+		showErrorMessageSpy = sandbox.spy(vscode.window, 'showErrorMessage');
+		showWarningMessageSpy = sandbox.spy(vscode.window, 'showWarningMessage');
+		showInformationMessageSpy = sandbox.spy(vscode.window, 'showInformationMessage');
+		showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick');
+
+		getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
+		workspaceFoldersGetterStub = sandbox.stub(vscode.workspace, 'workspaceFolders').get(() => [mockWorkspaceFolder]);
+
+		fsStatStub = sandbox.stub(vscode.workspace.fs, 'stat');
+		fsRenameStub = sandbox.stub(vscode.workspace.fs, 'rename');
+		fsCreateDirectoryStub = sandbox.stub(vscode.workspace.fs, 'createDirectory');
+	});
+
+	teardown(() => {
+		sandbox.restore();
+	});
+
+	function setMoveDestinationsConfig(destinations: any) {
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return destinations; }
+				return defaultValue;
+			},
+			has: () => true,
+			inspect: () => undefined,
+			update: () => Promise.resolve()
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+	}
+
+	test('TC-01: Move one selected file successfully', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		const targetUri = vscode.Uri.file('/mock/workspace/archive/source.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		// PC-03: stat source - is a file
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		// PC-06: stat dest folder - doesn't exist
+		fsStatStub.withArgs(destFolderUri).rejects(vscode.FileSystemError.FileNotFound());
+		// PC-08: stat target file - doesn't exist
+		fsStatStub.withArgs(targetUri).rejects(vscode.FileSystemError.FileNotFound());
+
+		// QuickPick selection
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsCreateDirectoryStub.resolves();
+		fsRenameStub.resolves();
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(fsCreateDirectoryStub.calledOnceWith(destFolderUri));
+		assert(fsRenameStub.calledOnceWith(sourceUri, targetUri, { overwrite: false }));
+		assert(showInformationMessageSpy.calledOnceWith('Moved 1 file to "Archive".'));
+	});
+
+	test('TC-02: Move multiple selected files successfully', async () => {
+		const sourceUri1 = vscode.Uri.file('/mock/workspace/source1.md');
+		const sourceUri2 = vscode.Uri.file('/mock/workspace/source2.md');
+		const targetUri1 = vscode.Uri.file('/mock/workspace/archive/source1.md');
+		const targetUri2 = vscode.Uri.file('/mock/workspace/archive/source2.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatStub.withArgs(targetUri2).rejects(vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsCreateDirectoryStub.resolves();
+		fsRenameStub.resolves();
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceUri2]);
+
+		assert(fsCreateDirectoryStub.calledOnceWith(destFolderUri));
+		assert(fsRenameStub.calledWith(sourceUri1, targetUri1, { overwrite: false }));
+		assert(fsRenameStub.calledWith(sourceUri2, targetUri2, { overwrite: false }));
+		assert(showInformationMessageSpy.calledOnceWith('Moved 2 files to "Archive".'));
+	});
+
+	test('TC-03: Cancel QuickPick causes no side effects', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		showQuickPickStub.resolves(undefined);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(fsCreateDirectoryStub.notCalled);
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('TC-04: Destination setting is missing', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig(undefined);
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('No preset move destinations are configured.'));
+	});
+
+	test('TC-05: Destination setting is empty', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig({});
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('No preset move destinations are configured.'));
+	});
+
+	test('TC-06: Destination path is empty', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig({ 'Archive': '' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Invalid configuration: Destination path for "Archive" cannot be empty.'));
+	});
+
+	test('TC-07: Destination path is invalid (not a string)', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig({ 'Archive': 123 });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Invalid configuration: Destination path for "Archive" must be a string.'));
+	});
+
+	test('TC-08: Selected resource includes a folder', async () => {
+		const sourceUri1 = vscode.Uri.file('/mock/workspace/source1.md');
+		const sourceFolderUri = vscode.Uri.file('/mock/workspace/folder');
+
+		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(sourceFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceFolderUri]);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Folders are not supported.'));
+	});
+
+	test('TC-09: Selected resource uses unsupported URI scheme', async () => {
+		const sourceUri = vscode.Uri.parse('http://example.com/source.md');
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Unsupported URI scheme.'));
+	});
+
+	test('TC-11: ${workspaceFolder} used without workspace', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+		workspaceFoldersGetterStub.get(() => undefined); // No workspace folder
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. No workspace folder is open.'));
+	});
+
+	test('TC-13: Destination exists as a file', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Destination path is a file, not a folder: /mock/workspace/archive'));
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('TC-15: Filename conflict exists', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		const targetUri = vscode.Uri.file('/mock/workspace/archive/source.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatStub.withArgs(targetUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Destination already contains: source.md'));
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('TC-16: One conflict in multiple files cancels the entire operation', async () => {
+		const sourceUri1 = vscode.Uri.file('/mock/workspace/source1.md');
+		const sourceUri2 = vscode.Uri.file('/mock/workspace/source2.md');
+		const targetUri1 = vscode.Uri.file('/mock/workspace/archive/source1.md');
+		const targetUri2 = vscode.Uri.file('/mock/workspace/archive/source2.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatStub.withArgs(targetUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceUri2]);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Destination already contains: source2.md'));
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('TC-17: Source and destination are the same', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/archive/source.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Source and destination are the same.'));
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('TC-18: Second file fails during move (partial failure is reported)', async () => {
+		const sourceUri1 = vscode.Uri.file('/mock/workspace/source1.md');
+		const sourceUri2 = vscode.Uri.file('/mock/workspace/source2.md');
+		const targetUri1 = vscode.Uri.file('/mock/workspace/archive/source1.md');
+		const targetUri2 = vscode.Uri.file('/mock/workspace/archive/source2.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatStub.withArgs(targetUri2).rejects(vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsRenameStub.withArgs(sourceUri1, targetUri1, { overwrite: false }).resolves();
+		fsRenameStub.withArgs(sourceUri2, targetUri2, { overwrite: false }).rejects(new Error('Permission denied'));
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceUri2]);
+
+		assert(showWarningMessageSpy.calledOnceWith('Move partially failed. 1 succeeded, 1 failed.'));
+	});
+
+	test('TC-19: All moves fail during execution', async () => {
+		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
+		const targetUri = vscode.Uri.file('/mock/workspace/archive/source.md');
+		const destFolderUri = vscode.Uri.file('/mock/workspace/archive');
+
+		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
+
+		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatStub.withArgs(targetUri).rejects(vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsRenameStub.rejects(new Error('Permission denied'));
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
+
+		assert(showErrorMessageSpy.calledOnceWith('Move failed. No files were moved.'));
+	});
+});
+

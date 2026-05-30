@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { resolveWorkspacePath } from './pathUtils';
 
 export interface DateNoteTemplateValues {
 	title: string;
@@ -24,18 +25,6 @@ interface DateNoteTemplateQuickPickItem extends vscode.QuickPickItem {
 	templatePath?: string;
 }
 
-export function resolveWorkspacePath(input: string): string {
-	if (!input.includes('${workspaceFolder}')) {
-		return input;
-	}
-
-	const folders = vscode.workspace.workspaceFolders;
-	if (!folders || folders.length === 0) {
-		throw new Error('No workspace folder is open');
-	}
-
-	return input.replace('${workspaceFolder}', folders[0].uri.fsPath);
-}
 
 export async function selectDateNoteTemplate(
 	config: vscode.WorkspaceConfiguration

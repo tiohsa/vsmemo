@@ -8,6 +8,7 @@ import { generateEmptyTable, parseMarkdownTable, stringifyMarkdownTable } from '
 import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 import { SidebarProvider } from './sidebarProvider';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
+import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -316,6 +317,9 @@ export function activate(context: vscode.ExtensionContext) {
 			} catch (err: any) {
 				vscode.window.showErrorMessage('Failed to list markdown files: ' + err.message);
 			}
+		}),
+		vscode.commands.registerCommand('vsmemo.moveFilesToPresetFolder', async (selectedUri?: vscode.Uri, allSelectedUris?: vscode.Uri[]) => {
+			await moveFilesToPresetFolder(selectedUri, allSelectedUris);
 		}),
 	);
 

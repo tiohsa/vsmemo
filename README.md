@@ -15,6 +15,7 @@ VSMemo is a Visual Studio Code extension designed to streamline your Markdown no
   - **Wrap in Code Block**: Wrap your selection in a code block with a specified language.
   - **Insert Today's Date**: Insert today's date in your preferred format.
   - **List Markdown Files**: Generate an index file listing all Markdown files in the current folder with links.
+- **Move Selected Files**: Move one or more selected files from the VS Code Explorer context menu to preset destination folders without overwriting existing files. Supports `${workspaceFolder}`.
 
 ---
 
@@ -66,6 +67,7 @@ Date: ${date}
    - **Wrap Selection in Code Block**: Wraps selected text in a code block with a specified language (defaults to `mermaid`).
    - **Insert Today's Date**: Inserts today's date at the cursor.
    - **List Markdown Files in Directory**: Generates an index page linking all Markdown files in the current folder.
+   - **Move to Preset Folder**: Move one or more selected files in the Explorer context menu to preset folders configured in settings.
 
 ---
 
@@ -85,6 +87,8 @@ This extension contributes the following settings:
   * Default: `${workspaceFolder}/.vsmemo/templates`
 * `vsmemo.dateNoteTemplateRequired`: If `true`, you must choose a template when creating a note (blank note option is disabled).
   * Default: `false`
+* `vsmemo.moveDestinations`: Preset destination folders for moving selected files. Key: Display name, Value: Destination folder path. Supports `${workspaceFolder}`.
+  * Default: `{"Inbox": "${workspaceFolder}/notes/inbox", "Archive": "${workspaceFolder}/notes/archive", "Done": "${workspaceFolder}/notes/done"}`
 
 ---
 
