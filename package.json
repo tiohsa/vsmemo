@@ -30,7 +30,10 @@
     "onCommand:vsmemo.wrapCodeBlock",
     "onCommand:vsmemo.insertTodayDate",
     "onCommand:vsmemo.listMarkdownFilesInDir",
-    "onCommand:vsmemo.moveFilesToPresetFolder"
+    "onCommand:vsmemo.moveFilesToPresetFolder",
+    "onCommand:vsmemo.quickMoveCurrentFile",
+    "onCommand:vsmemo.archiveCurrentNote",
+    "onCommand:vsmemo.clearRecentDestinations"
   ],
   "contributes": {
     "commands": [
@@ -77,6 +80,18 @@
       {
         "command": "vsmemo.moveFilesToPresetFolder",
         "title": "Move to Preset Folder"
+      },
+      {
+        "command": "vsmemo.quickMoveCurrentFile",
+        "title": "VSMemo: Quick Move Current File"
+      },
+      {
+        "command": "vsmemo.archiveCurrentNote",
+        "title": "VSMemo: Archive Current Note"
+      },
+      {
+        "command": "vsmemo.clearRecentDestinations",
+        "title": "VSMemo: Clear Recent Destinations"
       }
     ],
     "menus": {
@@ -124,6 +139,18 @@
         {
           "command": "vsmemo.moveFilesToPresetFolder",
           "title": "Move to Preset Folder"
+        },
+        {
+          "command": "vsmemo.quickMoveCurrentFile",
+          "title": "VSMemo: Quick Move Current File"
+        },
+        {
+          "command": "vsmemo.archiveCurrentNote",
+          "title": "VSMemo: Archive Current Note"
+        },
+        {
+          "command": "vsmemo.clearRecentDestinations",
+          "title": "VSMemo: Clear Recent Destinations"
         }
       ],
       "explorer/context": [
@@ -197,6 +224,39 @@
             "Done": "${workspaceFolder}/notes/done"
           },
           "description": "Preset destination folders for moving selected files. Key: Display name, Value: Destination folder path. Supports ${workspaceFolder}."
+        },
+        "vsmemo.moveConfirmation.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable confirmation summary before executing file moves."
+        },
+        "vsmemo.recentDestinations.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable prioritizing recently used destinations."
+        },
+        "vsmemo.recentDestinations.maxItems": {
+          "type": "integer",
+          "default": 5,
+          "description": "Maximum number of recent destinations to keep in history."
+        },
+        "vsmemo.archiveDestinationKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Destination key used by Archive Current Note command."
+        },
+        "vsmemo.autoIndexUpdate.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable updating the Markdown index file in destination folder after a successful move."
+        },
+        "vsmemo.autoIndexUpdate.fileName": {
+          "type": "string",
+          "default": "index.md",
+          "description": "Filename of the Markdown index file."
         }
       }
     }

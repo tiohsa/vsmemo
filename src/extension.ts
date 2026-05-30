@@ -9,6 +9,7 @@ import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 import { SidebarProvider } from './sidebarProvider';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
+import { moveCore } from './moveCore';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -319,7 +320,23 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 		vscode.commands.registerCommand('vsmemo.moveFilesToPresetFolder', async (selectedUri?: vscode.Uri, allSelectedUris?: vscode.Uri[]) => {
-			await moveFilesToPresetFolder(selectedUri, allSelectedUris);
+			await moveFilesToPresetFolder(context, selectedUri, allSelectedUris);
+		}),
+		vscode.commands.registerCommand('vsmemo.quickMoveCurrentFile', async () => {
+			await moveCore({ context });
+		}),
+		vscode.commands.registerCommand('vsmemo.archiveCurrentNote', async () => {
+			const config = vscode.workspace.getConfiguration('vsmemo');
+			const archiveKey = config.get<string | null>('archiveDestinationKey');
+			if (!archiveKey) {
+				vscode.window.showErrorMessage('Move cancelled. Archive destination is not configured.');
+				return;
+			}
+			await moveCore({ context, fixedDestinationKey: archiveKey });
+		}),
+		vscode.commands.registerCommand('vsmemo.clearRecentDestinations', async () => {
+			await context.workspaceState.update('vsmemo.recentDestinations', undefined);
+			vscode.window.showInformationMessage('Recent destinations history cleared.');
 		}),
 	);
 

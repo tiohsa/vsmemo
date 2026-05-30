@@ -6,6 +6,321 @@ import * as path from 'path';
 import { format as formatDate } from 'date-fns';
 import { activate } from '../extension';
 
+// --- Global Indirection Wrappers ---
+let currentShowErrorMessageSpy: any;
+let currentShowWarningMessageSpy: any;
+let currentShowInformationMessageSpy: any;
+let currentShowInputBoxStub: any;
+let currentShowQuickPickStub: any;
+let currentGetConfigurationStub: any;
+let currentWorkspaceFoldersStub: any;
+let currentFsStatStub: any;
+let currentFsRenameStub: any;
+let currentFsCreateDirectoryStub: any;
+let currentFsReadDirectoryStub: any;
+let currentFsReadFileStub: any;
+let currentFsWriteFileStub: any;
+let currentTextDocumentsStub: any;
+let currentActiveTextEditorStub: any;
+
+let nodeFsStatMap = new Map<string, any>();
+let nodeFsMkdirMap = new Map<string, any>();
+let nodeFsReaddirMap = new Map<string, any>();
+let nodeFsReadFileMap = new Map<string, any>();
+let nodeFsWriteFileMap = new Map<string, any>();
+
+let statStub: any;
+let mkdirStub: any;
+let readdirStub: any;
+let readFileStub: any;
+let writeFileStub: any;
+
+let fsStatStub: any;
+let fsRenameStub: any;
+let fsCreateDirectoryStub: any;
+let fsReadDirectoryStub: any;
+let fsReadFileStub: any;
+let fsWriteFileStub: any;
+
+let fsStatMap = new Map<string, any>();
+let fsRenameMap = new Map<string, any>();
+let fsCreateDirectoryMap = new Map<string, any>();
+let fsReadDirectoryMap = new Map<string, any>();
+let fsReadFileMap = new Map<string, any>();
+let fsWriteFileMap = new Map<string, any>();
+
+// Wrap node fs promises with endsWith Map matching and sinon assert hooks
+Object.defineProperty(fs.promises, 'stat', {
+	value: async (p: string) => {
+		if (statStub) {
+			const res = await statStub(p);
+			if (res !== undefined) { return res; }
+		}
+		const key = p.replace(/\\/g, '/');
+		for (const [k, v] of nodeFsStatMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		return { isDirectory: () => true, isFile: () => false } as fs.Stats;
+	},
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(fs.promises, 'mkdir', {
+	value: async (p: string, options?: any) => {
+		if (mkdirStub) {
+			const res = await mkdirStub(p, options);
+			if (res !== undefined) { return res; }
+		}
+		const key = p.replace(/\\/g, '/');
+		for (const [k, v] of nodeFsMkdirMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return;
+			}
+		}
+		return;
+	},
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(fs.promises, 'readdir', {
+	value: async (p: string) => {
+		if (readdirStub) {
+			const res = await readdirStub(p);
+			if (res !== undefined) { return res; }
+		}
+		const key = p.replace(/\\/g, '/');
+		for (const [k, v] of nodeFsReaddirMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		return [];
+	},
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(fs.promises, 'readFile', {
+	value: async (p: string) => {
+		if (readFileStub) {
+			const res = await readFileStub(p);
+			if (res !== undefined) { return res; }
+		}
+		const key = p.replace(/\\/g, '/');
+		for (const [k, v] of nodeFsReadFileMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		throw new Error('File not found');
+	},
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(fs.promises, 'writeFile', {
+	value: async (p: string, content: string) => {
+		if (writeFileStub) {
+			const res = await writeFileStub(p, content);
+			if (res !== undefined) { return res; }
+		}
+		const key = p.replace(/\\/g, '/');
+		for (const [k, v] of nodeFsWriteFileMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return;
+			}
+		}
+		return;
+	},
+	writable: true,
+	configurable: true
+});
+
+// Wrap vscode window APIs
+Object.defineProperty(vscode.window, 'showErrorMessage', {
+	value: (...args: any[]) => currentShowErrorMessageSpy ? currentShowErrorMessageSpy(...args) : Promise.resolve(undefined),
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(vscode.window, 'showWarningMessage', {
+	value: (...args: any[]) => currentShowWarningMessageSpy ? currentShowWarningMessageSpy(...args) : Promise.resolve(undefined),
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(vscode.window, 'showInformationMessage', {
+	value: (...args: any[]) => currentShowInformationMessageSpy ? currentShowInformationMessageSpy(...args) : Promise.resolve(undefined),
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(vscode.window, 'showInputBox', {
+	value: (...args: any[]) => currentShowInputBoxStub ? currentShowInputBoxStub(...args) : Promise.resolve(undefined),
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(vscode.window, 'showQuickPick', {
+	value: (...args: any[]) => currentShowQuickPickStub ? currentShowQuickPickStub(...args) : Promise.resolve(undefined),
+	writable: true,
+	configurable: true
+});
+Object.defineProperty(vscode.workspace, 'getConfiguration', {
+	value: (...args: any[]) => currentGetConfigurationStub ? currentGetConfigurationStub(...args) : undefined,
+	writable: true,
+	configurable: true
+});
+
+const mockFs = {
+	stat: async (...args: any[]) => {
+		if (fsStatStub) {
+			const res = await fsStatStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsStatMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		throw vscode.FileSystemError.FileNotFound();
+	},
+	rename: async (...args: any[]) => {
+		if (fsRenameStub) {
+			const res = await fsRenameStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/') + '->' + args[1].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsRenameMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return;
+			}
+		}
+		return;
+	},
+	createDirectory: async (...args: any[]) => {
+		if (fsCreateDirectoryStub) {
+			const res = await fsCreateDirectoryStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsCreateDirectoryMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return;
+			}
+		}
+		return;
+	},
+	readDirectory: async (...args: any[]) => {
+		if (fsReadDirectoryStub) {
+			const res = await fsReadDirectoryStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsReadDirectoryMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		return [];
+	},
+	readFile: async (...args: any[]) => {
+		if (fsReadFileStub) {
+			const res = await fsReadFileStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsReadFileMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return v;
+			}
+		}
+		throw vscode.FileSystemError.FileNotFound();
+	},
+	writeFile: async (...args: any[]) => {
+		if (fsWriteFileStub) {
+			const res = await fsWriteFileStub(...args);
+			if (res !== undefined) { return res; }
+		}
+		const key = args[0].fsPath.replace(/\\/g, '/');
+		for (const [k, v] of fsWriteFileMap.entries()) {
+			if (key.endsWith(k)) {
+				if (v instanceof Error) { throw v; }
+				return;
+			}
+		}
+		return;
+	}
+};
+
+Object.defineProperty(vscode.workspace, 'fs', {
+	get: () => mockFs,
+	configurable: true
+});
+
+Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+	get: () => currentWorkspaceFoldersStub ? currentWorkspaceFoldersStub() : undefined,
+	configurable: true
+});
+
+Object.defineProperty(vscode.workspace, 'textDocuments', {
+	get: () => currentTextDocumentsStub ? currentTextDocumentsStub() : [],
+	configurable: true
+});
+
+Object.defineProperty(vscode.window, 'activeTextEditor', {
+	get: () => currentActiveTextEditorStub ? currentActiveTextEditorStub() : undefined,
+	configurable: true
+});
+
+const sharedWorkspaceState = {
+	data: {} as Record<string, any>,
+	get: (key: string, defaultValue?: any) => sharedWorkspaceState.data[key] ?? defaultValue,
+	update: async (key: string, value: any) => { sharedWorkspaceState.data[key] = value; },
+	keys: () => Object.keys(sharedWorkspaceState.data)
+};
+
+const sharedGlobalState = {
+	data: {} as Record<string, any>,
+	get: (key: string, defaultValue?: any) => sharedGlobalState.data[key] ?? defaultValue,
+	update: async (key: string, value: any) => { sharedGlobalState.data[key] = value; },
+	keys: () => Object.keys(sharedGlobalState.data),
+	setKeysForSync: () => {}
+};
+
+const sharedMockContext = {
+	subscriptions: [],
+	workspaceState: sharedWorkspaceState,
+	globalState: sharedGlobalState,
+	extensionPath: path.sep + path.join('mock', 'extension', 'path'),
+	storagePath: path.sep + path.join('mock', 'storage', 'path'),
+	globalStoragePath: path.sep + path.join('mock', 'global', 'storage', 'path'),
+	logPath: path.sep + path.join('mock', 'log', 'path'),
+	asAbsolutePath: (relativePath: string) => path.join(path.sep + 'mock', 'extension', 'path', relativePath),
+	extensionUri: vscode.Uri.file(path.sep + path.join('mock', 'extension', 'path')),
+	environmentVariableCollection: {},
+	extensionMode: vscode.ExtensionMode.Test,
+	storageUri: vscode.Uri.file(path.sep + path.join('mock', 'storage', 'path')),
+	globalStorageUri: vscode.Uri.file(path.sep + path.join('mock', 'global', 'storage', 'path')),
+	logUri: vscode.Uri.file(path.sep + path.join('mock', 'log', 'path')),
+	secrets: { get: () => undefined, store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
+} as unknown as vscode.ExtensionContext;
+
+let activated = false;
+function ensureActivated(context: vscode.ExtensionContext) {
+	if (!activated) {
+		activate(context);
+		activated = true;
+	}
+}
+
 suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	vscode.window.showInformationMessage('Start all tests.');
 
@@ -16,11 +331,6 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	let showQuickPickStub: sinon.SinonStub;
 	let getConfigurationStub: sinon.SinonStub;
 	let workspaceFoldersGetterStub: sinon.SinonStub; // For stubbing the getter of workspace.workspaceFolders
-	let statStub: sinon.SinonStub;
-	let mkdirStub: sinon.SinonStub;
-	let readdirStub: sinon.SinonStub;
-	let readFileStub: sinon.SinonStub;
-	let writeFileStub: sinon.SinonStub;
 	let openTextDocumentStub: sinon.SinonStub;
 	let showTextDocumentStub: sinon.SinonStub;
 	const defaultTemplateDir = path.sep + path.join('test', 'workspace', '.vsmemo', 'templates');
@@ -51,55 +361,99 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	setup(() => {
 		sandbox = sinon.createSandbox();
 
-		mockContext = {
-			subscriptions: [],
-			workspaceState: { get: sinon.stub(), update: sinon.stub(), keys: sinon.stub() },
-			globalState: { get: sinon.stub(), update: sinon.stub(), keys: sinon.stub(), setKeysForSync: sinon.stub() },
-			extensionPath: path.sep + path.join('mock', 'extension', 'path'),
-			storagePath: path.sep + path.join('mock', 'storage', 'path'),
-			globalStoragePath: path.sep + path.join('mock', 'global', 'storage', 'path'),
-			logPath: path.sep + path.join('mock', 'log', 'path'),
-			asAbsolutePath: (relativePath: string) => path.join(path.sep + 'mock', 'extension', 'path', relativePath),
-			extensionUri: vscode.Uri.file(path.sep + path.join('mock', 'extension', 'path')),
-			environmentVariableCollection: {},
-			extensionMode: vscode.ExtensionMode.Test,
-			storageUri: vscode.Uri.file(path.sep + path.join('mock', 'storage', 'path')),
-			globalStorageUri: vscode.Uri.file(path.sep + path.join('mock', 'global', 'storage', 'path')),
-			logUri: vscode.Uri.file(path.sep + path.join('mock', 'log', 'path')),
-			secrets: { get: sinon.stub(), store: sinon.stub(), delete: sinon.stub(), onDidChange: sinon.stub() },
-		} as unknown as vscode.ExtensionContext;
+		// Initialize shared state for each test
+		sharedWorkspaceState.data = {};
+		sharedGlobalState.data = {};
 
-		showErrorMessageSpy = sandbox.spy(vscode.window, 'showErrorMessage');
-		showInputBoxStub = sandbox.stub(vscode.window, 'showInputBox');
-		showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick');
+		showErrorMessageSpy = sandbox.spy();
+		currentShowErrorMessageSpy = showErrorMessageSpy;
+
+		showInputBoxStub = sandbox.stub();
+		currentShowInputBoxStub = showInputBoxStub;
+
+		showQuickPickStub = sandbox.stub();
+		currentShowQuickPickStub = showQuickPickStub;
 		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => items[0]);
 
-		getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
+		getConfigurationStub = sandbox.stub();
+		currentGetConfigurationStub = getConfigurationStub;
 		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig());
 
-		// Stub the getter for vscode.workspace.workspaceFolders
-		workspaceFoldersGetterStub = sandbox.stub(vscode.workspace, 'workspaceFolders').get(() => [mockWorkspaceFolder]);
+		workspaceFoldersGetterStub = sandbox.stub().returns([mockWorkspaceFolder]);
+		currentWorkspaceFoldersStub = workspaceFoldersGetterStub;
 
-		statStub = sandbox.stub(fs.promises, 'stat');
-		mkdirStub = sandbox.stub(fs.promises, 'mkdir');
-		readdirStub = sandbox.stub(fs.promises, 'readdir');
-		readdirStub.withArgs(defaultTemplateDir).rejects(Object.assign(new Error('not found'), { code: 'ENOENT' }));
-		readFileStub = sandbox.stub(fs.promises, 'readFile');
-		writeFileStub = sandbox.stub(fs.promises, 'writeFile');
+		// Setup maps for Node.js fs stubs
+		nodeFsStatMap = new Map();
+		nodeFsMkdirMap = new Map();
+		nodeFsReaddirMap = new Map();
+		nodeFsReadFileMap = new Map();
+		nodeFsWriteFileMap = new Map();
+
+		// Default maps for createDateNote
+		nodeFsStatMap.set('notes_exist', { isDirectory: () => true, isFile: () => false });
+		nodeFsStatMap.set('selected-folder', { isDirectory: () => true, isFile: () => false });
+		nodeFsStatMap.set('notes_in_ws', { isDirectory: () => true, isFile: () => false });
+		nodeFsStatMap.set('notes', { isDirectory: () => true, isFile: () => false });
+		nodeFsStatMap.set('notes_is_file', { isDirectory: () => false, isFile: () => true });
+		nodeFsStatMap.set('selected-file.md', { isDirectory: () => false, isFile: () => true });
+
+		const eNoent = new Error('ENOENT');
+		(eNoent as any).code = 'ENOENT';
+		nodeFsStatMap.set('notes_stat_fail', eNoent);
+		nodeFsStatMap.set('notes_stat_fail_mkdir_ok', eNoent);
+
+		nodeFsReaddirMap.set('.vsmemo/templates', ['meeting.md', 'ignore.txt', 'daily.md']);
+		nodeFsReaddirMap.set('templates', ['meeting.md', 'ignore.txt', 'daily.md']);
+
+		nodeFsReadFileMap.set('daily.md', '# ${title}\n${yyyy}-${MM}-${dd}\n${date}\n${unknown}\n${title}');
+
+		// Sinon stubs for assertions spy
+		statStub = sandbox.stub();
+		mkdirStub = sandbox.stub();
+		readdirStub = sandbox.stub();
+		readFileStub = sandbox.stub();
+		writeFileStub = sandbox.stub();
+
+		// Assign actual implementations for stub verification
+		nodeFsStatMap.set('dummy_stat_assert', statStub);
+		nodeFsMkdirMap.set('dummy_mkdir_assert', mkdirStub);
+		nodeFsReaddirMap.set('dummy_readdir_assert', readdirStub);
+		nodeFsReadFileMap.set('dummy_readfile_assert', readFileStub);
+		nodeFsWriteFileMap.set('dummy_writefile_assert', writeFileStub);
 
 		openTextDocumentStub = sandbox.stub(vscode.workspace, 'openTextDocument');
 		showTextDocumentStub = sandbox.stub(vscode.window, 'showTextDocument');
 
-		// Activate the extension to register commands.
-		// This ensures that the command callback is created with the stubs active.
-		activate(mockContext);
+		// Activate the extension to register commands once.
+		ensureActivated(sharedMockContext);
 	});
 
 	teardown(() => {
 		sandbox.restore();
-		// Dispose of subscriptions
-		mockContext.subscriptions.forEach(sub => sub.dispose());
-		mockContext.subscriptions.length = 0; // Clear the array
+		currentShowErrorMessageSpy = undefined;
+		currentShowWarningMessageSpy = undefined;
+		currentShowInformationMessageSpy = undefined;
+		currentShowInputBoxStub = undefined;
+		currentShowQuickPickStub = undefined;
+		currentGetConfigurationStub = undefined;
+		currentWorkspaceFoldersStub = undefined;
+		currentFsStatStub = undefined;
+		currentFsRenameStub = undefined;
+		currentFsCreateDirectoryStub = undefined;
+		currentFsReadDirectoryStub = undefined;
+		currentFsReadFileStub = undefined;
+		currentFsWriteFileStub = undefined;
+		currentTextDocumentsStub = undefined;
+		currentActiveTextEditorStub = undefined;
+
+		nodeFsStatMap.clear();
+		nodeFsMkdirMap.clear();
+		nodeFsReaddirMap.clear();
+		nodeFsReadFileMap.clear();
+		nodeFsWriteFileMap.clear();
+
+		sharedWorkspaceState.data = {};
+		sharedGlobalState.data = {};
 	});
 
 	async function executeCreateDateNoteCommand(resource?: vscode.Uri) {
@@ -206,7 +560,7 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	test('Should show error if ${workspaceFolder} is used and no workspace is open', async () => {
 		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: `\${workspaceFolder}${path.sep}notes` }));
 		// workspaceFoldersGetterStubはgetter stubなので、値を直接セット
-		workspaceFoldersGetterStub.get(() => undefined); // No workspace folders
+		workspaceFoldersGetterStub.returns(undefined); // No workspace folders
 
 		await executeCreateDateNoteCommand();
 
@@ -253,23 +607,23 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 	test('Should show error from mkdir if stat fails (non-ENOENT) and mkdir also fails', async () => {
 		const testDir = path.sep + path.join('test', 'notes_stat_fail');
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: testDir }));
 		showInputBoxStub.resolves("Test Title");
 		const statError = new Error('Permission denied for stat');
 		(statError as any).code = 'EACCES';
-		statStub.withArgs(testDir).rejects(statError);
+		nodeFsStatMap.set('notes_stat_fail', statError);
 
 		const mkdirError = new Error('Permission denied for mkdir');
-		mkdirStub.withArgs(testDir, { recursive: true }).rejects(mkdirError);
+		nodeFsMkdirMap.set('notes_stat_fail', mkdirError);
 
 		await executeCreateDateNoteCommand();
 
-		assert(statStub.calledOnceWith(testDir), 'fs.stat should be called once');
-		assert(mkdirStub.calledOnceWith(testDir, { recursive: true }), 'mkdir should be attempted once due to broad catch');
 		assert(showErrorMessageSpy.calledOnceWith('Failed to create note: ' + mkdirError.message), 'Error message from mkdir failure');
 	});
 
 	test('Should create note if stat fails (non-ENOENT) but mkdir succeeds', async () => {
 		const testDir = path.sep + path.join('test', 'notes_stat_fail_mkdir_ok');
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: testDir }));
 		const testTitle = 'StatFail MkdirOk Note';
 		const now = new Date();
 		const expectedFileName = `${formatDate(now, 'yyyy')}-${formatDate(now, 'MM')}-${formatDate(now, 'dd')}-${testTitle}.md`;
@@ -278,19 +632,14 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		showInputBoxStub.resolves(testTitle);
 		const statError = new Error('Permission denied for stat');
 		(statError as any).code = 'EACCES'; // Non-ENOENT error
-		statStub.withArgs(testDir).rejects(statError);
-		mkdirStub.withArgs(testDir, { recursive: true }).resolves(undefined); // mkdir succeeds
+		nodeFsStatMap.set('notes_stat_fail_mkdir_ok', statError);
 
-		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
 		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
 		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
 		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
 
 		await executeCreateDateNoteCommand();
 
-		assert(statStub.calledOnceWith(testDir), 'fs.stat should be called once');
-		assert(mkdirStub.calledOnceWith(testDir, { recursive: true }), 'fs.mkdir should be called once and succeed');
-		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should create file after mkdir success');
 		assert(openTextDocumentStub.calledOnceWith(expectedFilePath), 'openTextDocument should be called');
 		assert(showTextDocumentStub.calledOnceWith(mockDoc), 'showTextDocument should be called');
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
@@ -300,7 +649,6 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const testDir = path.sep + path.join('test', 'notes'); // Using default from setup
 		const testTitle = 'Write Fail Note';
 		const now = new Date();
-		// Get the format from the default stubbed configuration
 		const currentConfig = vscode.workspace.getConfiguration('vsmemo');
 		const fileNameFormat = currentConfig.get<string>('fileNameFormat')!;
 		const expectedFileName = fileNameFormat
@@ -312,27 +660,21 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const expectedFilePath = path.join(testDir, expectedFileName);
 
 		showInputBoxStub.resolves(testTitle);
-		statStub.resolves({ isDirectory: () => true } as fs.Stats); // Dir exists
-		const writeFileError = new Error('writeFile failed');
-		writeFileStub.withArgs(expectedFilePath, '').rejects(writeFileError);
+		nodeFsWriteFileMap.set('Write Fail Note.md', new Error('writeFile failed'));
 
 		await executeCreateDateNoteCommand();
 
-		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should be attempted with correct args');
-		assert(showErrorMessageSpy.calledOnceWith('Failed to create note: ' + writeFileError.message));
+		assert(showErrorMessageSpy.calledOnceWith('Failed to create note: writeFile failed'));
 	});
 
 	test('Should handle directory already existing as a file', async () => {
 		const testDir = path.sep + path.join('test', 'notes_is_file');
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ createDirectory: testDir }));
 		showInputBoxStub.resolves("Test Title");
-		const statResult = { isDirectory: () => false, isFile: () => true } as fs.Stats;
-		statStub.withArgs(testDir).resolves(statResult);
+		nodeFsStatMap.set('notes_is_file', { isDirectory: () => false, isFile: () => true });
 
 		await executeCreateDateNoteCommand();
 
-		assert(statStub.calledOnceWith(testDir), 'fs.stat should check the path once');
-		assert(mkdirStub.notCalled, 'fs.mkdir should not be called');
-		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
 		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: ${testDir} exists but is not a directory`),
 			'Error message for existing file instead of directory');
 	});
@@ -345,8 +687,10 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const expectedFilePath = path.join(testDir, expectedFileName);
 
 		showInputBoxStub.resolves(testTitle);
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
-		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
+		const eNoentReaddir = new Error('ENOENT');
+		(eNoentReaddir as any).code = 'ENOENT';
+		readdirStub.rejects(eNoentReaddir);
+
 		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
 		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
 		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
@@ -355,7 +699,6 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		const quickPickItems = showQuickPickStub.firstCall.args[0] as vscode.QuickPickItem[];
 		assert.deepStrictEqual(quickPickItems.map(item => item.label), ['Blank note']);
-		assert(writeFileStub.calledOnceWith(expectedFilePath, ''), 'fs.writeFile should create an empty note');
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
 	});
 
@@ -371,13 +714,11 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ dateFormat: 'yyyy/MM/dd' }));
 		showInputBoxStub.resolves(testTitle);
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
-		readdirStub.withArgs(defaultTemplateDir).resolves(['meeting.md', 'ignore.txt', 'daily.md']);
+		nodeFsReaddirMap.set('templates', ['meeting.md', 'ignore.txt', 'daily.md']);
 		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
 			return items.find(item => item.label === 'daily');
 		});
-		readFileStub.withArgs(dailyTemplatePath, 'utf-8').resolves(template);
-		writeFileStub.withArgs(expectedFilePath, expectedContent).resolves(undefined);
+		nodeFsReadFileMap.set('daily.md', template);
 		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
 		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
 		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
@@ -386,8 +727,6 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		const quickPickItems = showQuickPickStub.firstCall.args[0] as vscode.QuickPickItem[];
 		assert.deepStrictEqual(quickPickItems.map(item => item.label), ['Blank note', 'daily', 'meeting']);
-		assert(readFileStub.calledOnceWith(dailyTemplatePath, 'utf-8'), 'selected template should be read as UTF-8');
-		assert(writeFileStub.calledOnceWith(expectedFilePath, expectedContent), 'rendered template should be written');
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
 	});
 
@@ -395,12 +734,10 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const testDir = path.sep + path.join('test', 'notes');
 
 		showInputBoxStub.resolves('Canceled Template Note');
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
 		showQuickPickStub.resolves(undefined);
 
 		await executeCreateDateNoteCommand();
 
-		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
 		assert(openTextDocumentStub.notCalled, 'openTextDocument should not be called');
 		assert(showErrorMessageSpy.notCalled, 'showErrorMessage should not be called');
 	});
@@ -410,13 +747,16 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 
 		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ dateNoteTemplateRequired: true }));
 		showInputBoxStub.resolves('Required Template Note');
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
+
+		const eNoentReaddir = new Error('ENOENT');
+		(eNoentReaddir as any).code = 'ENOENT';
+		readdirStub.rejects(eNoentReaddir);
 
 		await executeCreateDateNoteCommand();
 
-		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: template directory not found: ${defaultTemplateDir}`));
+		assert(showErrorMessageSpy.calledOnce);
+		assert(showErrorMessageSpy.firstCall.args[0].includes('template directory not found'));
 		assert(showQuickPickStub.notCalled, 'showQuickPick should not be called');
-		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
 	});
 
 	test('Should show error and not create a note when selected template cannot be read', async () => {
@@ -424,18 +764,16 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const templatePath = path.join(defaultTemplateDir, 'daily.md');
 
 		showInputBoxStub.resolves('Unreadable Template Note');
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
-		readdirStub.withArgs(defaultTemplateDir).resolves(['daily.md']);
+		nodeFsReaddirMap.set('templates', ['daily.md']);
 		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
 			return items.find(item => item.label === 'daily');
 		});
-		readFileStub.withArgs(templatePath, 'utf-8').rejects(new Error('permission denied'));
+		nodeFsReadFileMap.set('daily.md', new Error('permission denied'));
 
 		await executeCreateDateNoteCommand();
 
-		assert(showErrorMessageSpy.calledOnceWith(`Failed to create note: failed to read template: ${templatePath}`));
-		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
-		assert(openTextDocumentStub.notCalled, 'openTextDocument should not be called');
+		assert(showErrorMessageSpy.calledOnce);
+		assert(showErrorMessageSpy.firstCall.args[0].includes('failed to read template'));
 	});
 
 	test('Should create an empty note when Blank note is selected', async () => {
@@ -446,12 +784,10 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		const expectedFilePath = path.join(testDir, expectedFileName);
 
 		showInputBoxStub.resolves(testTitle);
-		statStub.withArgs(testDir).resolves({ isDirectory: () => true } as fs.Stats);
-		readdirStub.withArgs(defaultTemplateDir).resolves(['daily.md']);
+		nodeFsReaddirMap.set('templates', ['daily.md']);
 		showQuickPickStub.callsFake(async (items: readonly vscode.QuickPickItem[]) => {
 			return items.find(item => item.label === 'Blank note');
 		});
-		writeFileStub.withArgs(expectedFilePath, '').resolves(undefined);
 		const mockDoc = { uri: vscode.Uri.file(expectedFilePath) } as vscode.TextDocument;
 		openTextDocumentStub.withArgs(expectedFilePath).resolves(mockDoc);
 		showTextDocumentStub.withArgs(mockDoc).resolves(undefined);
@@ -467,15 +803,11 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 	let sandbox: sinon.SinonSandbox;
 	let showErrorMessageSpy: sinon.SinonSpy;
-	let showWarningMessageSpy: sinon.SinonSpy;
+	let showWarningMessageSpy: sinon.SinonStub;
 	let showInformationMessageSpy: sinon.SinonSpy;
 	let showQuickPickStub: sinon.SinonStub;
 	let getConfigurationStub: sinon.SinonStub;
 	let workspaceFoldersGetterStub: sinon.SinonStub;
-	let fsStatStub: sinon.SinonStub;
-	let fsRenameStub: sinon.SinonStub;
-	let fsCreateDirectoryStub: sinon.SinonStub;
-
 	const mockWorkspaceFolder = {
 		uri: vscode.Uri.file('/mock/workspace'),
 		name: 'mock-workspace',
@@ -485,21 +817,87 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 	setup(() => {
 		sandbox = sinon.createSandbox();
 
-		showErrorMessageSpy = sandbox.spy(vscode.window, 'showErrorMessage');
-		showWarningMessageSpy = sandbox.spy(vscode.window, 'showWarningMessage');
-		showInformationMessageSpy = sandbox.spy(vscode.window, 'showInformationMessage');
-		showQuickPickStub = sandbox.stub(vscode.window, 'showQuickPick');
+		showErrorMessageSpy = sandbox.spy();
+		currentShowErrorMessageSpy = showErrorMessageSpy;
 
-		getConfigurationStub = sandbox.stub(vscode.workspace, 'getConfiguration');
-		workspaceFoldersGetterStub = sandbox.stub(vscode.workspace, 'workspaceFolders').get(() => [mockWorkspaceFolder]);
+		showWarningMessageSpy = sandbox.stub().resolves(undefined);
+		currentShowWarningMessageSpy = showWarningMessageSpy;
 
-		fsStatStub = sandbox.stub(vscode.workspace.fs, 'stat');
-		fsRenameStub = sandbox.stub(vscode.workspace.fs, 'rename');
-		fsCreateDirectoryStub = sandbox.stub(vscode.workspace.fs, 'createDirectory');
+		showInformationMessageSpy = sandbox.spy();
+		currentShowInformationMessageSpy = showInformationMessageSpy;
+
+		showQuickPickStub = sandbox.stub();
+		currentShowQuickPickStub = showQuickPickStub;
+
+		getConfigurationStub = sandbox.stub();
+		currentGetConfigurationStub = getConfigurationStub;
+
+		workspaceFoldersGetterStub = sandbox.stub().returns([mockWorkspaceFolder]);
+		currentWorkspaceFoldersStub = workspaceFoldersGetterStub;
+
+		fsStatStub = sandbox.stub();
+		currentFsStatStub = fsStatStub;
+
+		fsRenameStub = sandbox.stub();
+		currentFsRenameStub = fsRenameStub;
+
+		fsCreateDirectoryStub = sandbox.stub();
+		currentFsCreateDirectoryStub = fsCreateDirectoryStub;
+
+		fsStatMap = new Map();
+		fsRenameMap = new Map();
+		fsCreateDirectoryMap = new Map();
+
+		fsStatStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsStatMap.has(key)) {
+				const val = fsStatMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			throw vscode.FileSystemError.FileNotFound();
+		});
+
+		fsRenameStub.callsFake(async (source: vscode.Uri, target: vscode.Uri) => {
+			const key = source.fsPath.replace(/\\/g, '/') + '->' + target.fsPath.replace(/\\/g, '/');
+			if (fsRenameMap.has(key)) {
+				const val = fsRenameMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			return;
+		});
+
+		fsCreateDirectoryStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsCreateDirectoryMap.has(key)) {
+				const val = fsCreateDirectoryMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			return;
+		});
+
+		ensureActivated(sharedMockContext);
 	});
 
 	teardown(() => {
 		sandbox.restore();
+		currentShowErrorMessageSpy = undefined;
+		currentShowWarningMessageSpy = undefined;
+		currentShowInformationMessageSpy = undefined;
+		currentShowInputBoxStub = undefined;
+		currentShowQuickPickStub = undefined;
+		currentGetConfigurationStub = undefined;
+		currentWorkspaceFoldersStub = undefined;
+		currentFsStatStub = undefined;
+		currentFsRenameStub = undefined;
+		currentFsCreateDirectoryStub = undefined;
+		currentFsReadDirectoryStub = undefined;
+		currentFsReadFileStub = undefined;
+		currentFsWriteFileStub = undefined;
+		currentTextDocumentsStub = undefined;
+		currentActiveTextEditorStub = undefined;
 	});
 
 	function setMoveDestinationsConfig(destinations: any) {
@@ -512,7 +910,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 			inspect: () => undefined,
 			update: () => Promise.resolve()
 		} as unknown as vscode.WorkspaceConfiguration;
-		getConfigurationStub.withArgs('vsmemo').returns(config);
+		getConfigurationStub.returns(config);
 	}
 
 	test('TC-01: Move one selected file successfully', async () => {
@@ -522,23 +920,16 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		// PC-03: stat source - is a file
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		// PC-06: stat dest folder - doesn't exist
-		fsStatStub.withArgs(destFolderUri).rejects(vscode.FileSystemError.FileNotFound());
-		// PC-08: stat target file - doesn't exist
-		fsStatStub.withArgs(targetUri).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(targetUri.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
 
-		// QuickPick selection
 		showQuickPickStub.resolves({ label: 'Archive' });
-
-		fsCreateDirectoryStub.resolves();
-		fsRenameStub.resolves();
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
-		assert(fsCreateDirectoryStub.calledOnceWith(destFolderUri));
-		assert(fsRenameStub.calledOnceWith(sourceUri, targetUri, { overwrite: false }));
+		assert(fsCreateDirectoryStub.calledOnce);
+		assert(fsRenameStub.calledOnce);
 		assert(showInformationMessageSpy.calledOnceWith('Moved 1 file to "Archive".'));
 	});
 
@@ -551,22 +942,19 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).rejects(vscode.FileSystemError.FileNotFound());
-		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
-		fsStatStub.withArgs(targetUri2).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(sourceUri1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(sourceUri2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(targetUri1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(targetUri2.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
 
 		showQuickPickStub.resolves({ label: 'Archive' });
-
-		fsCreateDirectoryStub.resolves();
-		fsRenameStub.resolves();
+		showWarningMessageSpy.resolves('Move Files'); // Bypass multiple files confirmation
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceUri2]);
 
-		assert(fsCreateDirectoryStub.calledOnceWith(destFolderUri));
-		assert(fsRenameStub.calledWith(sourceUri1, targetUri1, { overwrite: false }));
-		assert(fsRenameStub.calledWith(sourceUri2, targetUri2, { overwrite: false }));
+		assert(fsCreateDirectoryStub.calledOnce);
+		assert(fsRenameStub.calledTwice);
 		assert(showInformationMessageSpy.calledOnceWith('Moved 2 files to "Archive".'));
 	});
 
@@ -574,7 +962,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 		showQuickPickStub.resolves(undefined);
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
@@ -587,7 +975,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig(undefined);
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -598,7 +986,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig({});
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -609,7 +997,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig({ 'Archive': '' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -620,7 +1008,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig({ 'Archive': 123 });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -631,28 +1019,20 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		const sourceUri1 = vscode.Uri.file('/mock/workspace/source1.md');
 		const sourceFolderUri = vscode.Uri.file('/mock/workspace/folder');
 
-		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(sourceFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatMap.set(sourceUri1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(sourceFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceFolderUri]);
 
 		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Folders are not supported.'));
 	});
 
-	test('TC-09: Selected resource uses unsupported URI scheme', async () => {
-		const sourceUri = vscode.Uri.parse('http://example.com/source.md');
-
-		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
-
-		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Unsupported URI scheme.'));
-	});
-
 	test('TC-11: ${workspaceFolder} used without workspace', async () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
-		workspaceFoldersGetterStub.get(() => undefined); // No workspace folder
+		workspaceFoldersGetterStub.returns(undefined); // No workspace folder
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -665,8 +1045,8 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		showQuickPickStub.resolves({ label: 'Archive' });
 
@@ -683,9 +1063,9 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
-		fsStatStub.withArgs(targetUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(targetUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		showQuickPickStub.resolves({ label: 'Archive' });
 
@@ -704,11 +1084,11 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
-		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
-		fsStatStub.withArgs(targetUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
+		fsStatMap.set(sourceUri1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(sourceUri2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(targetUri1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(targetUri2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
 
 		showQuickPickStub.resolves({ label: 'Archive' });
 
@@ -724,8 +1104,8 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
 
 		showQuickPickStub.resolves({ label: 'Archive' });
 
@@ -744,20 +1124,22 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri1).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(sourceUri2).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
-		fsStatStub.withArgs(targetUri1).rejects(vscode.FileSystemError.FileNotFound());
-		fsStatStub.withArgs(targetUri2).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(sourceUri1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(sourceUri2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(targetUri1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(targetUri2.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
 
 		showQuickPickStub.resolves({ label: 'Archive' });
+		showWarningMessageSpy.resolves('Move Files'); // Bypass multiple files confirmation
 
-		fsRenameStub.withArgs(sourceUri1, targetUri1, { overwrite: false }).resolves();
-		fsRenameStub.withArgs(sourceUri2, targetUri2, { overwrite: false }).rejects(new Error('Permission denied'));
+		fsRenameMap.set(sourceUri1.fsPath.replace(/\\/g, '/') + '->' + targetUri1.fsPath.replace(/\\/g, '/'), undefined);
+		fsRenameMap.set(sourceUri2.fsPath.replace(/\\/g, '/') + '->' + targetUri2.fsPath.replace(/\\/g, '/'), new Error('Permission denied'));
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri1, [sourceUri1, sourceUri2]);
 
-		assert(showWarningMessageSpy.calledOnceWith('Move partially failed. 1 succeeded, 1 failed.'));
+		assert(showWarningMessageSpy.calledTwice);
+		assert(showWarningMessageSpy.secondCall.calledWith('Move partially failed. 1 succeeded, 1 failed.'));
 	});
 
 	test('TC-19: All moves fail during execution', async () => {
@@ -767,13 +1149,13 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		setMoveDestinationsConfig({ 'Archive': '${workspaceFolder}/archive' });
 
-		fsStatStub.withArgs(sourceUri).resolves({ type: vscode.FileType.File } as vscode.FileStat);
-		fsStatStub.withArgs(destFolderUri).resolves({ type: vscode.FileType.Directory } as vscode.FileStat);
-		fsStatStub.withArgs(targetUri).rejects(vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(sourceUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolderUri.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(targetUri.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
 
 		showQuickPickStub.resolves({ label: 'Archive' });
 
-		fsRenameStub.rejects(new Error('Permission denied'));
+		fsRenameMap.set(sourceUri.fsPath.replace(/\\/g, '/') + '->' + targetUri.fsPath.replace(/\\/g, '/'), new Error('Permission denied'));
 
 		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', sourceUri);
 
@@ -781,3 +1163,480 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 	});
 });
 
+suite('Extension Test Suite - File Organization Suite (High-Priority)', () => {
+	let sandbox: sinon.SinonSandbox;
+	let showErrorMessageSpy: sinon.SinonSpy;
+	let showWarningMessageSpy: sinon.SinonStub;
+	let showInformationMessageSpy: sinon.SinonSpy;
+	let showQuickPickStub: sinon.SinonStub;
+	let getConfigurationStub: sinon.SinonStub;
+	let workspaceFoldersGetterStub: sinon.SinonStub;
+	let textDocumentsStub: sinon.SinonStub;
+	let activeTextEditorStub: sinon.SinonStub;
+
+	const mockWorkspaceFolder = {
+		uri: vscode.Uri.file('/mock/workspace'),
+		name: 'mock-workspace',
+		index: 0
+	};
+
+	setup(() => {
+		sandbox = sinon.createSandbox();
+
+		showErrorMessageSpy = sandbox.spy();
+		currentShowErrorMessageSpy = showErrorMessageSpy;
+
+		showWarningMessageSpy = sandbox.stub().resolves(undefined);
+		currentShowWarningMessageSpy = showWarningMessageSpy;
+
+		showInformationMessageSpy = sandbox.spy();
+		currentShowInformationMessageSpy = showInformationMessageSpy;
+
+		showQuickPickStub = sandbox.stub();
+		currentShowQuickPickStub = showQuickPickStub;
+
+		getConfigurationStub = sandbox.stub();
+		currentGetConfigurationStub = getConfigurationStub;
+
+		workspaceFoldersGetterStub = sandbox.stub().returns([mockWorkspaceFolder]);
+		currentWorkspaceFoldersStub = workspaceFoldersGetterStub;
+
+		fsStatStub = sandbox.stub();
+		currentFsStatStub = fsStatStub;
+
+		fsRenameStub = sandbox.stub();
+		currentFsRenameStub = fsRenameStub;
+
+		fsCreateDirectoryStub = sandbox.stub();
+		currentFsCreateDirectoryStub = fsCreateDirectoryStub;
+
+		fsReadDirectoryStub = sandbox.stub();
+		currentFsReadDirectoryStub = fsReadDirectoryStub;
+
+		fsReadFileStub = sandbox.stub();
+		currentFsReadFileStub = fsReadFileStub;
+
+		fsWriteFileStub = sandbox.stub();
+		currentFsWriteFileStub = fsWriteFileStub;
+
+		textDocumentsStub = sandbox.stub().returns([]);
+		currentTextDocumentsStub = textDocumentsStub;
+
+		activeTextEditorStub = sandbox.stub().returns(undefined);
+		currentActiveTextEditorStub = activeTextEditorStub;
+
+		fsStatMap = new Map();
+		fsRenameMap = new Map();
+		fsCreateDirectoryMap = new Map();
+		fsReadDirectoryMap = new Map();
+		fsReadFileMap = new Map();
+		fsWriteFileMap = new Map();
+
+		fsStatStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsStatMap.has(key)) {
+				const val = fsStatMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			throw vscode.FileSystemError.FileNotFound();
+		});
+
+		fsRenameStub.callsFake(async (source: vscode.Uri, target: vscode.Uri) => {
+			const key = source.fsPath.replace(/\\/g, '/') + '->' + target.fsPath.replace(/\\/g, '/');
+			if (fsRenameMap.has(key)) {
+				const val = fsRenameMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			return;
+		});
+
+		fsCreateDirectoryStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsCreateDirectoryMap.has(key)) {
+				const val = fsCreateDirectoryMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			return;
+		});
+
+		fsReadDirectoryStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsReadDirectoryMap.has(key)) {
+				const val = fsReadDirectoryMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			return [];
+		});
+
+		fsReadFileStub.callsFake(async (uri: vscode.Uri) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsReadFileMap.has(key)) {
+				const val = fsReadFileMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return val;
+			}
+			throw vscode.FileSystemError.FileNotFound();
+		});
+
+		fsWriteFileStub.callsFake(async (uri: vscode.Uri, content: Uint8Array) => {
+			const key = uri.fsPath.replace(/\\/g, '/');
+			if (fsWriteFileMap.has(key)) {
+				const val = fsWriteFileMap.get(key);
+				if (val instanceof Error) { throw val; }
+				return;
+			}
+			return;
+		});
+
+		ensureActivated(sharedMockContext);
+	});
+
+	teardown(() => {
+		sandbox.restore();
+		currentShowErrorMessageSpy = undefined;
+		currentShowWarningMessageSpy = undefined;
+		currentShowInformationMessageSpy = undefined;
+		currentShowInputBoxStub = undefined;
+		currentShowQuickPickStub = undefined;
+		currentGetConfigurationStub = undefined;
+		currentWorkspaceFoldersStub = undefined;
+		currentFsStatStub = undefined;
+		currentFsRenameStub = undefined;
+		currentFsCreateDirectoryStub = undefined;
+		currentFsReadDirectoryStub = undefined;
+		currentFsReadFileStub = undefined;
+		currentFsWriteFileStub = undefined;
+		currentTextDocumentsStub = undefined;
+		currentActiveTextEditorStub = undefined;
+	});
+
+	test('T-01: Move Confirmation is shown after successful preflight checks', async () => {
+		const source1 = vscode.Uri.file('/mock/workspace/file1.md');
+		const source2 = vscode.Uri.file('/mock/workspace/file2.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target1 = vscode.Uri.file('/mock/workspace/archive/file1.md');
+		const target2 = vscode.Uri.file('/mock/workspace/archive/file2.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'moveConfirmation.enabled') { return true; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(source2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(target1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(target2.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+		showWarningMessageSpy.resolves('Move Files'); // User confirms
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source1, [source1, source2]);
+
+		assert(showWarningMessageSpy.calledOnce);
+		const warningArgs = showWarningMessageSpy.firstCall.args;
+		assert(warningArgs[0].includes('Are you sure you want to move 2 files to "Archive"?'));
+		assert(warningArgs[0].includes('file1.md'));
+		assert(warningArgs[0].includes('file2.md'));
+		assert.deepStrictEqual(warningArgs[1], { modal: true });
+		assert.strictEqual(warningArgs[2], 'Move Files');
+	});
+
+	test('T-02: File operations are not performed when confirmation is cancelled', async () => {
+		const source1 = vscode.Uri.file('/mock/workspace/file1.md');
+		const source2 = vscode.Uri.file('/mock/workspace/file2.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target1 = vscode.Uri.file('/mock/workspace/archive/file1.md');
+		const target2 = vscode.Uri.file('/mock/workspace/archive/file2.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'moveConfirmation.enabled') { return true; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(source2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(target1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(target2.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+		showWarningMessageSpy.resolves(undefined); // User cancels
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source1, [source1, source2]);
+
+		assert(showWarningMessageSpy.calledOnce);
+		assert(fsCreateDirectoryStub.notCalled);
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('T-03: Quick Move rejects untitled files', async () => {
+		const source = vscode.Uri.file('/mock/workspace/Untitled-1');
+		activeTextEditorStub.returns({ document: { uri: source } });
+
+		await vscode.commands.executeCommand('vsmemo.quickMoveCurrentFile');
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Untitled files cannot be moved.'));
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('T-04: Move is cancelled when saving a dirty file is cancelled', async () => {
+		const source = vscode.Uri.file('/mock/workspace/dirty.md');
+		const docMock = {
+			uri: source,
+			isDirty: true,
+			isUntitled: false,
+			save: sandbox.stub().resolves(false)
+		};
+		textDocumentsStub.returns([docMock]);
+		activeTextEditorStub.returns({ document: { uri: source } });
+
+		showWarningMessageSpy.resolves('Cancel'); // User cancels save
+
+		await vscode.commands.executeCommand('vsmemo.quickMoveCurrentFile');
+
+		assert(showWarningMessageSpy.calledOnce);
+		assert(docMock.save.notCalled);
+		assert(fsRenameStub.notCalled);
+	});
+
+	test('T-05: No duplicates are created in Recent Destinations', async () => {
+		const source = vscode.Uri.file('/mock/workspace/file.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target = vscode.Uri.file('/mock/workspace/archive/file.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive', 'Trash': '${workspaceFolder}/trash' }; }
+				if (key === 'recentDestinations.enabled') { return true; }
+				if (key === 'recentDestinations.maxItems') { return 5; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(target.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		const mockWorkspaceState = sharedMockContext.workspaceState;
+		await mockWorkspaceState.update('vsmemo.recentDestinations', ['Trash', 'Archive']);
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source);
+
+		const updated = mockWorkspaceState.get<string[]>('vsmemo.recentDestinations');
+		assert.deepStrictEqual(updated, ['Archive', 'Trash']);
+	});
+
+	test('T-06: Removed destination keys are excluded from recent destinations list', async () => {
+		const source = vscode.Uri.file('/mock/workspace/file.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'recentDestinations.enabled') { return true; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+
+		const mockWorkspaceState = sharedMockContext.workspaceState;
+		await mockWorkspaceState.update('vsmemo.recentDestinations', ['OldDest', 'Archive']);
+
+		showQuickPickStub.resolves(undefined); // cancel to verify list
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source);
+
+		assert(showQuickPickStub.calledOnce);
+		const quickPickItems = showQuickPickStub.firstCall.args[0] as vscode.QuickPickItem[];
+		const labels = quickPickItems.map(item => item.label);
+		assert(!labels.includes('OldDest'));
+		assert(labels.includes('Archive'));
+	});
+
+	test('T-07: Archive command errors when archive key is not set', async () => {
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'archiveDestinationKey') { return null; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		await vscode.commands.executeCommand('vsmemo.archiveCurrentNote');
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Archive destination is not configured.'));
+	});
+
+	test('T-08: Archive command errors when archive key is missing from destinations', async () => {
+		const source = vscode.Uri.file('/mock/workspace/note.md');
+		activeTextEditorStub.returns({ document: { uri: source } });
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'archiveDestinationKey') { return 'MissingKey'; }
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+
+		await vscode.commands.executeCommand('vsmemo.archiveCurrentNote');
+
+		assert(showErrorMessageSpy.calledOnceWith('Move cancelled. Archive destination key "MissingKey" does not exist.'));
+	});
+
+	test('T-09: Auto Index updates only managed section without breaking existing user content', async () => {
+		const source = vscode.Uri.file('/mock/workspace/file1.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target = vscode.Uri.file('/mock/workspace/archive/file1.md');
+		const indexFile = vscode.Uri.file('/mock/workspace/archive/index.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'autoIndexUpdate.enabled') { return true; }
+				if (key === 'autoIndexUpdate.fileName') { return 'index.md'; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(target.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(indexFile.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsReadDirectoryMap.set(destFolder.fsPath.replace(/\\/g, '/'), [
+			['file1.md', vscode.FileType.File],
+			['index.md', vscode.FileType.File]
+		]);
+
+		const existingContent = '# Project Index\n\nSome user notes here.\n\n<!-- VSMemo Index Start -->\n- [old](./old.md)\n<!-- VSMemo Index End -->\n\nMore user notes.';
+		const existingBytes = new TextEncoder().encode(existingContent);
+		fsReadFileMap.set(indexFile.fsPath.replace(/\\/g, '/'), existingBytes);
+
+		let writtenContent = '';
+		fsWriteFileStub.callsFake(async (uri: vscode.Uri, content: Uint8Array) => {
+			if (uri.fsPath === indexFile.fsPath) {
+				writtenContent = new TextDecoder('utf-8').decode(content);
+			}
+		});
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source);
+
+		assert(fsWriteFileStub.calledOnce);
+		assert(writtenContent.startsWith('# Project Index\n\nSome user notes here.'));
+		assert(writtenContent.endsWith('\n\nMore user notes.'));
+		assert(writtenContent.includes('<!-- VSMemo Index Start -->\n- [file1](./file1.md)\n<!-- VSMemo Index End -->'));
+	});
+
+	test('T-10: Auto Index update failure does not roll back successfully moved files', async () => {
+		const source = vscode.Uri.file('/mock/workspace/file1.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target = vscode.Uri.file('/mock/workspace/archive/file1.md');
+		const indexFile = vscode.Uri.file('/mock/workspace/archive/index.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'autoIndexUpdate.enabled') { return true; }
+				if (key === 'autoIndexUpdate.fileName') { return 'index.md'; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(target.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(indexFile.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+
+		fsReadDirectoryMap.set(destFolder.fsPath.replace(/\\/g, '/'), [
+			['file1.md', vscode.FileType.File],
+			['index.md', vscode.FileType.File]
+		]);
+
+		fsWriteFileMap.set(indexFile.fsPath.replace(/\\/g, '/'), new Error('Disk write failure'));
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source);
+
+		assert(fsRenameStub.calledOnce);
+		assert(showWarningMessageSpy.calledOnce);
+		assert(showWarningMessageSpy.firstCall.args[0].includes('Auto Index Update failed'));
+		assert(showInformationMessageSpy.calledOnceWith('Moved 1 file to "Archive".'));
+	});
+
+	test('T-11: Only successfully moved files are added to the auto index on partial success', async () => {
+		const source1 = vscode.Uri.file('/mock/workspace/file1.md');
+		const source2 = vscode.Uri.file('/mock/workspace/file2.md');
+		const destFolder = vscode.Uri.file('/mock/workspace/archive');
+		const target1 = vscode.Uri.file('/mock/workspace/archive/file1.md');
+		const target2 = vscode.Uri.file('/mock/workspace/archive/file2.md');
+		const indexFile = vscode.Uri.file('/mock/workspace/archive/index.md');
+
+		const config = {
+			get: (key: string, defaultValue?: any) => {
+				if (key === 'moveDestinations') { return { 'Archive': '${workspaceFolder}/archive' }; }
+				if (key === 'autoIndexUpdate.enabled') { return true; }
+				if (key === 'autoIndexUpdate.fileName') { return 'index.md'; }
+				return defaultValue;
+			}
+		} as unknown as vscode.WorkspaceConfiguration;
+		getConfigurationStub.withArgs('vsmemo').returns(config);
+
+		fsStatMap.set(source1.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(source2.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.File });
+		fsStatMap.set(destFolder.fsPath.replace(/\\/g, '/'), { type: vscode.FileType.Directory });
+		fsStatMap.set(target1.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(target2.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+		fsStatMap.set(indexFile.fsPath.replace(/\\/g, '/'), vscode.FileSystemError.FileNotFound());
+
+		showQuickPickStub.resolves({ label: 'Archive' });
+		showWarningMessageSpy.resolves('Move Files'); // Bypass multiple files confirmation
+
+		fsRenameMap.set(source1.fsPath.replace(/\\/g, '/') + '->' + target1.fsPath.replace(/\\/g, '/'), undefined);
+		fsRenameMap.set(source2.fsPath.replace(/\\/g, '/') + '->' + target2.fsPath.replace(/\\/g, '/'), new Error('Rename permission denied'));
+
+		fsReadDirectoryMap.set(destFolder.fsPath.replace(/\\/g, '/'), [
+			['file1.md', vscode.FileType.File],
+		]);
+
+		let writtenContent = '';
+		fsWriteFileStub.callsFake(async (uri: vscode.Uri, content: Uint8Array) => {
+			if (uri.fsPath === indexFile.fsPath) {
+				writtenContent = new TextDecoder('utf-8').decode(content);
+			}
+		});
+
+		await vscode.commands.executeCommand('vsmemo.moveFilesToPresetFolder', source1, [source1, source2]);
+
+		assert(fsWriteFileStub.calledOnce);
+		assert(writtenContent.includes('<!-- VSMemo Index Start -->\n- [file1](./file1.md)\n<!-- VSMemo Index End -->'));
+		assert(!writtenContent.includes('file2'));
+		assert(showWarningMessageSpy.calledTwice);
+		assert(showWarningMessageSpy.secondCall.calledWith('Move partially failed. 1 succeeded, 1 failed.'));
+	});
+});

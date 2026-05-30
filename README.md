@@ -1,6 +1,6 @@
 # VSMemo
 
-VSMemo is a Visual Studio Code extension designed to streamline your Markdown note-taking and table editing experience. It allows you to quickly create date-stamped Markdown notes in your workspace using customized templates, manage complex Markdown tables with ease, and access all utilities from a dedicated sidebar.
+VSMemo is a Visual Studio Code extension designed to streamline your Markdown note-taking and table editing experience. It allows you to quickly create date-stamped Markdown notes in your workspace using customized templates, manage complex Markdown tables with ease, organize your notes with the **File Organization Suite**, and access all utilities from a dedicated sidebar.
 
 ## Features
 
@@ -15,7 +15,13 @@ VSMemo is a Visual Studio Code extension designed to streamline your Markdown no
   - **Wrap in Code Block**: Wrap your selection in a code block with a specified language.
   - **Insert Today's Date**: Insert today's date in your preferred format.
   - **List Markdown Files**: Generate an index file listing all Markdown files in the current folder with links.
-- **Move Selected Files**: Move one or more selected files from the VS Code Explorer context menu to preset destination folders without overwriting existing files. Supports `${workspaceFolder}`.
+- **File Organization Suite**:
+  - **Move Files to Preset**: Move one or more selected files from the VS Code Explorer context menu to preset destination folders. Supports `${workspaceFolder}`.
+  - **Quick Move Current File**: Move the active editor file directly from a QuickPick menu. Asks to save unsaved files and prevents moving unsaved "Untitled" documents.
+  - **Archive Current Note**: Move the current active document to the configured archive destination folder with a single action.
+  - **Recent Destinations**: Remembers up to 5 recently used destinations and pins them to the top of the destination picker.
+  - **Move Confirmation**: Displays a preview summary (showing the destination and number of files) before performing a multi-file move operation to avoid accidents.
+  - **Auto Index Update**: Automatically updates the `index.md` file (or a configured file name) in the destination folder. It dynamically updates links under a dedicated section wrapped in `<!-- VSMemo Index Start -->` and `<!-- VSMemo Index End -->`.
 
 ---
 
@@ -68,6 +74,9 @@ Date: ${date}
    - **Insert Today's Date**: Inserts today's date at the cursor.
    - **List Markdown Files in Directory**: Generates an index page linking all Markdown files in the current folder.
    - **Move to Preset Folder**: Move one or more selected files in the Explorer context menu to preset folders configured in settings.
+   - **VSMemo: Quick Move Current File**: Move the active document to a preset folder.
+   - **VSMemo: Archive Current Note**: Directly move the active document to the configured archive folder.
+   - **VSMemo: Clear Recent Destinations**: Clears the history of recently used destination folders.
 
 ---
 
@@ -89,10 +98,30 @@ This extension contributes the following settings:
   * Default: `false`
 * `vsmemo.moveDestinations`: Preset destination folders for moving selected files. Key: Display name, Value: Destination folder path. Supports `${workspaceFolder}`.
   * Default: `{"Inbox": "${workspaceFolder}/notes/inbox", "Archive": "${workspaceFolder}/notes/archive", "Done": "${workspaceFolder}/notes/done"}`
+* `vsmemo.moveConfirmation.enabled`: Enable confirmation summary before executing multi-file moves.
+  * Default: `true`
+* `vsmemo.recentDestinations.enabled`: Enable prioritizing recently used destinations in the picker.
+  * Default: `true`
+* `vsmemo.recentDestinations.maxItems`: Maximum number of recent destinations to keep in history.
+  * Default: `5`
+* `vsmemo.archiveDestinationKey`: Key from `vsmemo.moveDestinations` to be used by the "Archive Current Note" command.
+  * Default: `null`
+* `vsmemo.autoIndexUpdate.enabled`: If `true`, automatically updates the markdown index file in the destination folder after moving files.
+  * Default: `false`
+* `vsmemo.autoIndexUpdate.fileName`: Filename of the index file to be updated when `vsmemo.autoIndexUpdate.enabled` is true.
+  * Default: `"index.md"`
 
 ---
 
 ## Release Notes
+
+### 0.2.0
+- **File Organization Suite**:
+  - Added **Quick Move Current File** command to move the active document directly.
+  - Added **Archive Current Note** command to quick-archive active document based on `vsmemo.archiveDestinationKey`.
+  - Added **Recent Destinations** history to automatically bubble up recently used destinations to the top of the QuickPick menu.
+  - Added **Move Confirmation Summary** before executing multi-file move operations.
+  - Added **Auto Index Update** to dynamically generate and maintain index files (such as `index.md`) in destinations within `<!-- VSMemo Index Start -->` and `<!-- VSMemo Index End -->` boundaries.
 
 ### 0.1.0
 - Added **Sidebar View** (`Markdown Tools`) in the activity bar for easier access to all commands.
