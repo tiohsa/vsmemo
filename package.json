@@ -19,22 +19,6 @@
     "Other"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [
-    "onCommand:vsmemo.createDateNote",
-    "onCommand:vsmemo.createTableAtPosition",
-    "onCommand:vsmemo.insertColumn",
-    "onCommand:vsmemo.insertRow",
-    "onCommand:vsmemo.convertSelectionToTable",
-    "onCommand:vsmemo.deleteColumn",
-    "onCommand:vsmemo.deleteRow",
-    "onCommand:vsmemo.wrapCodeBlock",
-    "onCommand:vsmemo.insertTodayDate",
-    "onCommand:vsmemo.listMarkdownFilesInDir",
-    "onCommand:vsmemo.moveFilesToPresetFolder",
-    "onCommand:vsmemo.quickMoveCurrentFile",
-    "onCommand:vsmemo.archiveCurrentNote",
-    "onCommand:vsmemo.clearRecentDestinations"
-  ],
   "contributes": {
     "commands": [
       {
