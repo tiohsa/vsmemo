@@ -83,6 +83,10 @@
       {
         "command": "vsmemo.clearRecentDestinations",
         "title": "VSMemo: Clear Recent Destinations"
+      },
+      {
+        "command": "vsmemo.configureMoveDestinationAutoRevealExclude",
+        "title": "VSMemo: Prevent Explorer Reveal for Move Destinations"
       }
     ],
     "menus": {
@@ -146,6 +150,10 @@
         {
           "command": "vsmemo.clearRecentDestinations",
           "title": "VSMemo: Clear Recent Destinations"
+        },
+        {
+          "command": "vsmemo.configureMoveDestinationAutoRevealExclude",
+          "title": "VSMemo: Prevent Explorer Reveal for Move Destinations"
         }
       ],
       "explorer/context": [

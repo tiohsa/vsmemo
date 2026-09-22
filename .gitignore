@@ -6,3 +6,7 @@ node_modules
 prompt.md
 .venv/
 graphify-out/
+.antigravitycli/
+.codegraph
+docs/
+spec-docs/

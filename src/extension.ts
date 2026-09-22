@@ -10,6 +10,7 @@ import { SidebarProvider } from './sidebarProvider';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
 import { moveCore } from './moveCore';
+import { configureMoveDestinationAutoRevealExclude } from './autoRevealExclude';
 
 const markdownTableLinePattern = /^\s*\|.*\|\s*$/;
 
@@ -376,6 +377,9 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('vsmemo.clearRecentDestinations', async () => {
 			await context.workspaceState.update('vsmemo.recentDestinations', undefined);
 			vscode.window.showInformationMessage('Recent destinations history cleared.');
+		}),
+		vscode.commands.registerCommand('vsmemo.configureMoveDestinationAutoRevealExclude', async () => {
+			await configureMoveDestinationAutoRevealExclude();
 		}),
 	);
 

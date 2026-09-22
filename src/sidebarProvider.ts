@@ -43,6 +43,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<CommandItem> {
             { id: 'vsmemo.wrapCodeBlock', label: 'Wrap Code Block', icon: 'code' },
             { id: 'vsmemo.insertTodayDate', label: 'Insert Today Date', icon: 'calendar' },
             { id: 'vsmemo.listMarkdownFilesInDir', label: 'List Markdown Files', icon: 'list-unordered' },
+            { id: 'vsmemo.configureMoveDestinationAutoRevealExclude', label: 'Configure Move Auto-Reveal', icon: 'eye-closed' },
         ];
         return Promise.resolve(commands.map(cmd => new CommandItem(cmd.label, cmd.id, new vscode.ThemeIcon(cmd.icon))));
     }
