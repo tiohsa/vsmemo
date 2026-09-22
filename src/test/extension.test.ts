@@ -3,6 +3,9 @@ import * as vscode from 'vscode';
 import * as sinon from 'sinon';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { loadMoveDestinations } from '../moveDestinations';
+import { getWorkspacePath, resolveWorkspacePath } from '../pathUtils';
 import { format as formatDate } from 'date-fns';
 import { activate } from '../extension';
 import { formatMarkdownTable, parseMarkdownTable, stringifyMarkdownTable } from '../markdownTableUtils';
@@ -124,9 +127,9 @@ Object.defineProperty(fs.promises, 'readFile', {
 	configurable: true
 });
 Object.defineProperty(fs.promises, 'writeFile', {
-	value: async (p: string, content: string) => {
+	value: async (p: string, content: string, options?: any) => {
 		if (writeFileStub) {
-			const res = await writeFileStub(p, content);
+			const res = await writeFileStub(p, content, options);
 			if (res !== undefined) { return res; }
 		}
 		const key = p.replace(/\\/g, '/');
@@ -461,6 +464,74 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		// The command is registered in `setup` by calling `activate`.
 		await vscode.commands.executeCommand('vsmemo.createDateNote', resource);
 	}
+
+	test('creates exclusively and preserves an existing note on a duplicate attempt', async () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vsmemo-note-'));
+		try {
+			getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({
+				createDirectory: directory, fileNameFormat: '${title}.${ext}'
+			}));
+			showInputBoxStub.resolves('日本語 note');
+			writeFileStub.callsFake(async (filePath: string, content: string, options: fs.WriteFileOptions) => {
+				fs.writeFileSync(filePath, content, options);
+			});
+			await executeCreateDateNoteCommand();
+			const filePath = path.join(directory, '日本語 note.md');
+			assert.strictEqual(fs.readFileSync(filePath, 'utf8'), '');
+			assert(writeFileStub.calledOnceWithExactly(filePath, '', { flag: 'wx' }));
+			fs.writeFileSync(filePath, 'existing content must survive');
+			await executeCreateDateNoteCommand();
+			assert.strictEqual(fs.readFileSync(filePath, 'utf8'), 'existing content must survive');
+			assert(showErrorMessageSpy.calledOnceWith('Note already exists: 日本語 note.md'));
+			assert(openTextDocumentStub.calledOnce);
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test('sanitizes traversal titles while keeping original template content', async () => {
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ fileNameFormat: '${title}.${ext}' }));
+		showInputBoxStub.resolves('../日本語\\note. ');
+		showQuickPickStub.callsFake(async (items: any[]) => items.find(item => item.label === 'daily'));
+		await executeCreateDateNoteCommand();
+		assert.strictEqual(writeFileStub.firstCall.args[0], path.join(path.sep, 'test', 'notes', '___日本語_note_.md'));
+		assert(writeFileStub.firstCall.args[1].startsWith('# ../日本語\\note. '));
+	});
+
+	test('rejects a filename format that escapes the selected directory before writing', async () => {
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({ fileNameFormat: '../${title}.${ext}' }));
+		showInputBoxStub.resolves('escape');
+		await executeCreateDateNoteCommand();
+		assert(writeFileStub.notCalled);
+		assert(showErrorMessageSpy.calledOnceWith('Failed to create note: Note filename must stay inside the note directory.'));
+	});
+
+	test('resolves creation, templates and move destinations from a second-root active file', async () => {
+		const second = { uri: vscode.Uri.file('/second'), name: 'second', index: 1 };
+		workspaceFoldersGetterStub.returns([mockWorkspaceFolder, second]);
+		const activeUri = vscode.Uri.file('/second/current.md');
+		currentActiveTextEditorStub = () => ({ document: { uri: activeUri } });
+		sandbox.stub(vscode.workspace, 'getWorkspaceFolder').withArgs(activeUri).returns(second);
+		getConfigurationStub.withArgs('vsmemo').returns(createVsmemoConfig({
+			createDirectory: '${workspaceFolder}/notes',
+			fileNameFormat: '${title}.${ext}',
+			moveDestinations: { Archive: '${workspaceFolder}/archive' }
+		}));
+		showInputBoxStub.resolves('second');
+		await executeCreateDateNoteCommand();
+		assert(writeFileStub.calledOnceWith('/second/notes/second.md'));
+		assert(readdirStub.calledOnceWith('/second/.vsmemo/templates'));
+		assert.deepStrictEqual(loadMoveDestinations(activeUri), [{
+			name: 'Archive', rawPath: '${workspaceFolder}/archive', resolvedPath: '/second/archive'
+		}]);
+		assert.throws(() => loadMoveDestinations(), /ambiguous/);
+		assert.strictEqual(resolveWorkspacePath('notes', getWorkspacePath(activeUri)), '/second/notes');
+		assert.strictEqual(resolveWorkspacePath('/outside/notes'), '/outside/notes');
+	});
+
+	test('resolves a workspace-relative path in a single-root workspace', () => {
+		assert.strictEqual(resolveWorkspacePath('notes'), path.join(mockWorkspaceFolder.uri.fsPath, 'notes'));
+	});
 
 	test('Should create a note successfully in a specified directory (new directory)', async () => {
 		const testDir = path.sep + path.join('test', 'notes');
@@ -914,6 +985,44 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 		getConfigurationStub.returns(config);
 	}
 
+	for (const command of ['vsmemo.moveFilesToPresetFolder', 'vsmemo.quickMoveCurrentFile']) {
+		test(`${command} uses the second root and does not mutate settings`, async () => {
+			const second = { uri: vscode.Uri.file('/second'), name: 'second', index: 1 };
+			workspaceFoldersGetterStub.returns([mockWorkspaceFolder, second]);
+			const source = vscode.Uri.file('/second/source.md');
+			sandbox.stub(vscode.workspace, 'getWorkspaceFolder').withArgs(source).returns(second);
+			currentActiveTextEditorStub = () => ({ document: { uri: source } });
+			setMoveDestinationsConfig({ Archive: '${workspaceFolder}/archive' });
+			const config = vscode.workspace.getConfiguration('vsmemo');
+			const update = sandbox.spy(config, 'update');
+			fsStatMap.set(source.fsPath, { type: vscode.FileType.File });
+			showQuickPickStub.resolves({ label: 'Archive' });
+			await vscode.commands.executeCommand(command, command.endsWith('PresetFolder') ? source : undefined);
+			assert(fsRenameStub.calledOnce);
+			assert.strictEqual(fsRenameStub.firstCall.args[1].fsPath, '/second/archive/source.md');
+			assert(update.notCalled);
+			assert(showErrorMessageSpy.notCalled);
+		});
+	}
+
+	test('auto-reveal command confirms and writes only workspace exclusions', async () => {
+		const update = sandbox.stub().resolves();
+		const conditional = { when: '$(basename).ts' };
+		getConfigurationStub.withArgs('vsmemo').returns({
+			get: () => ({ Archive: '${workspaceFolder}/archive' })
+		});
+		getConfigurationStub.withArgs('explorer').returns({
+			get: () => ({ '**/*.js': conditional }),
+			inspect: () => ({ workspaceValue: { '**/*.js': conditional } }),
+			update
+		});
+		showWarningMessageSpy.resolves('Apply');
+		await vscode.commands.executeCommand('vsmemo.configureMoveDestinationAutoRevealExclude');
+		assert(showWarningMessageSpy.calledOnce);
+		assert(update.calledOnceWithExactly('autoRevealExclude',
+			{ '**/*.js': conditional, 'archive/**': true }, vscode.ConfigurationTarget.Workspace));
+	});
+
 	test('TC-01: Move one selected file successfully', async () => {
 		const sourceUri = vscode.Uri.file('/mock/workspace/source.md');
 		const targetUri = vscode.Uri.file('/mock/workspace/archive/source.md');
@@ -1306,6 +1415,44 @@ suite('Extension Test Suite - Markdown table commands', () => {
 		currentGetConfigurationStub = undefined;
 		currentActiveTextEditorStub = undefined;
 	});
+
+	for (const cursorLine of [0, 1]) {
+		test(`deleteRow leaves header/separator at line ${cursorLine} unchanged`, async () => {
+			const mock = createEditor(['| A |', '| --- |', '| first |'], cursorLine, 2);
+			currentActiveTextEditorStub = () => mock.editor;
+			await vscode.commands.executeCommand('vsmemo.deleteRow');
+			assert.deepStrictEqual(mock.replacements, []);
+		});
+	}
+
+	for (const rowIndex of [0, 1, 2]) {
+		test(`deleteRow deletes data row ${rowIndex} and preserves the other rows`, async () => {
+			const values = ['first', 'middle', 'last'];
+			const mock = createEditor(['| A |', '| --- |', ...values.map(value => `| ${value} |`)], rowIndex + 2, 2);
+			currentActiveTextEditorStub = () => mock.editor;
+			await vscode.commands.executeCommand('vsmemo.deleteRow');
+			assert.deepStrictEqual(parseMarkdownTable(mock.replacements[0].text.split('\n')).rows,
+				values.filter((_, index) => index !== rowIndex).map(value => [value]));
+		});
+	}
+
+	test('deleteRow leaves a table without data unchanged', async () => {
+		const mock = createEditor(['| A |', '| --- |'], 1, 2);
+		currentActiveTextEditorStub = () => mock.editor;
+		await vscode.commands.executeCommand('vsmemo.deleteRow');
+		assert.deepStrictEqual(mock.replacements, []);
+	});
+
+	for (const [name, input, actual] of [['comma', ',', ','], ['literal tab', '\t', '\t'], ['escaped tab', '\\t', '\t'], ['custom', '::', '::']]) {
+		test(`converts selection using ${name} delimiter`, async () => {
+			showInputBoxStub.resolves(input);
+			const mock = createEditor([''], 0, 0, `alpha${actual}beta\ngamma${actual}delta`);
+			currentActiveTextEditorStub = () => mock.editor;
+			await vscode.commands.executeCommand('vsmemo.convertSelectionToTable');
+			assert.deepStrictEqual(parseMarkdownTable(mock.replacements[0].text.split('\n')).rows,
+				[['alpha', 'beta'], ['gamma', 'delta']]);
+		});
+	}
 
 	test('T-001: deleteColumn formats the remaining table', async () => {
 		const mock = createEditor(['| Name | Age |', '| --- | --- |', '| Alice | 30 |'], 0, 10);

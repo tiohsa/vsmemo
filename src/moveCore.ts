@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { loadMoveDestinations, MoveDestination } from './moveDestinations';
+import { getWorkspacePath } from './pathUtils';
 
 export interface MoveOptions {
 	context: vscode.ExtensionContext;
@@ -90,13 +91,14 @@ export async function moveCore(options: MoveOptions): Promise<void> {
 	// PC-04: Destination setting exists and is valid
 	let destinations: MoveDestination[];
 	try {
-		destinations = loadMoveDestinations();
+		const workspacePaths = new Set(uris.map(uri => getWorkspacePath(uri)));
+		destinations = loadMoveDestinations(uris[0], workspacePaths.size === 1 ? getWorkspacePath(uris[0]) : null);
 	} catch (error) {
 		vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
 		return;
 	}
 
-	const config = vscode.workspace.getConfiguration('vsmemo');
+	const config = vscode.workspace.getConfiguration('vsmemo', uris[0]);
 
 	// Resolve destination
 	let selectedDest: MoveDestination | undefined;

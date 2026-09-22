@@ -46,6 +46,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "vsix=vsmemo-${version}.vsix" >> "${GITHUB_OUTPUT}"
 
+      - name: Run tests
+        run: xvfb-run -a pnpm test
+
       - name: Build extension
         run: pnpm run package
 

@@ -27,9 +27,10 @@ interface DateNoteTemplateQuickPickItem extends vscode.QuickPickItem {
 
 
 export async function selectDateNoteTemplate(
-	config: vscode.WorkspaceConfiguration
+	config: vscode.WorkspaceConfiguration,
+	workspacePath?: string
 ): Promise<SelectedDateNoteTemplate | undefined> {
-	const templateDirectory = resolveWorkspacePath(config.get<string>('dateNoteTemplateDirectory')!);
+	const templateDirectory = resolveWorkspacePath(config.get<string>('dateNoteTemplateDirectory')!, workspacePath);
 	const templateRequired = config.get<boolean>('dateNoteTemplateRequired', false);
 	const items: DateNoteTemplateQuickPickItem[] = [];
 

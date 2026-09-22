@@ -1,7 +1,8 @@
 import * as assert from 'assert';
-import * as path from 'path';
 import {
 	AutoRevealExcludeDependencies,
+	AutoRevealExclusions,
+	resolveAutoRevealDestination,
 	buildAutoRevealExclusionGlob,
 	configureMoveDestinationAutoRevealExclude,
 	mergeAutoRevealExclusions
@@ -15,10 +16,10 @@ function destination(name: string, resolvedPath: string): MoveDestination {
 function dependenciesFor(
 	destinations: MoveDestination[],
 	folders: Array<{ path: string; name: string }>,
-	initialWorkspaceExclusions: Record<string, boolean> = {},
-	initialEffectiveExclusions: Record<string, boolean> = initialWorkspaceExclusions
+	initialWorkspaceExclusions: AutoRevealExclusions = {},
+	initialEffectiveExclusions: AutoRevealExclusions = initialWorkspaceExclusions
 ): AutoRevealExcludeDependencies & {
-	updated: Record<string, boolean>[];
+	updated: AutoRevealExclusions[];
 	confirmations: string[][];
 	messages: string[];
 	setConfirmResult(value: boolean): void;
@@ -29,13 +30,13 @@ function dependenciesFor(
 	for (const key of Object.keys(initialWorkspaceExclusions)) {
 		delete inheritedExclusions[key];
 	}
-	const updated: Record<string, boolean>[] = [];
+	const updated: AutoRevealExclusions[] = [];
 	const confirmations: string[][] = [];
 	const messages: string[] = [];
 	let confirmResult = true;
 
 	const dependencies: AutoRevealExcludeDependencies & {
-		updated: Record<string, boolean>[];
+		updated: AutoRevealExclusions[];
 		confirmations: string[][];
 		messages: string[];
 		setConfirmResult(value: boolean): void;
@@ -45,13 +46,7 @@ function dependenciesFor(
 		messages,
 		loadDestinations: () => destinations,
 		resolveDestination(destinationPath) {
-			const normalizedPath = path.normalize(destinationPath.replace(/[\\/]/g, path.sep));
-			const matches = folders
-				.map(folder => ({ folder, glob: buildAutoRevealExclusionGlob(folder.path, normalizedPath) }))
-				.filter(item => item.glob !== undefined)
-				.sort((a, b) => b.folder.path.length - a.folder.path.length);
-			const match = matches[0];
-			return match ? { workspaceFolderPath: match.folder.path, destinationPath: normalizedPath } : undefined;
+			return resolveAutoRevealDestination(destinationPath, folders.map(folder => folder.path));
 		},
 		getEffectiveExclusions: () => effectiveExclusions,
 		getWorkspaceExclusions: () => workspaceExclusions,
@@ -99,38 +94,53 @@ suite('Explorer auto-reveal exclusions', () => {
 		assert.strictEqual(secondRun.added, 0);
 	});
 
-	test('adds multiple destinations relative to their own workspace roots and skips outside paths', async () => {
-		const dependencies = dependenciesFor(
-			[
-				destination('Inbox', '/workspace/first/notes/inbox'),
-				destination('Archive', '/workspace/second/notes/archive'),
-				destination('External', '/outside/archive')
-			],
-			[
-				{ path: '/workspace/first', name: 'First' },
-				{ path: '/workspace/second', name: 'Second' }
-			],
-			{ 'generated/**': true },
-			{ '**/node_modules/**': true, 'generated/**': true }
-		);
-
+	test('skips multi-root destinations instead of applying a relative glob to every root', async () => {
+		const dependencies = dependenciesFor([
+			destination('Archive', '/workspace/second/notes/archive'),
+			destination('FirstArchive', '/workspace/first/notes/archive'),
+			destination('Variable', '${workspaceFolder}/notes/archive'),
+			destination('Relative', 'notes/archive'),
+			destination('External', '/outside/archive')
+		], [{ path: '/workspace/first', name: 'First' }, { path: '/workspace/second', name: 'Second' }]);
 		await configureMoveDestinationAutoRevealExclude(dependencies);
+		assert.deepStrictEqual(dependencies.updated, []);
+		assert.deepStrictEqual(dependencies.confirmations, []);
+		assert.match(dependencies.messages[0], /5 skipped \(ambiguous workspace/);
+	});
 
-		assert.deepStrictEqual(dependencies.updated, [{
-			'generated/**': true,
-			'notes/inbox/**': true,
-			'notes/archive/**': true
-		}]);
-		assert.deepStrictEqual(dependencies.getEffectiveExclusions(), {
-			'**/node_modules/**': true,
-			'generated/**': true,
-			'notes/inbox/**': true,
-			'notes/archive/**': true
-		});
-		assert.deepStrictEqual(dependencies.confirmations, [['notes/inbox/**', 'notes/archive/**']]);
-		assert.deepStrictEqual(dependencies.messages, [
-			'Explorer auto-reveal exclusions updated: 2 added, 0 already configured, 1 skipped.'
-		]);
+	test('resolves raw configured paths in a single root and skips outside or unsupported paths', async () => {
+		const dependencies = dependenciesFor([
+			destination('Variable', '${workspaceFolder}/notes/archive'),
+			destination('Relative', 'notes/inbox'),
+			destination('External', '/outside/archive'),
+			destination('Remote', 'vscode-remote://host/archive'),
+			destination('OtherOS', 'C:\\archive'),
+			destination('Pattern', '/workspace/notes/[archive]')
+		], [{ path: '/workspace', name: 'Workspace' }]);
+		await configureMoveDestinationAutoRevealExclude(dependencies);
+		assert.deepStrictEqual(dependencies.updated, [{ 'notes/archive/**': true, 'notes/inbox/**': true }]);
+		assert.match(dependencies.messages[0], /2 added.*4 skipped/);
+	});
+
+	test('preserves conditional exclusions when merging generated patterns', async () => {
+		const conditional = { when: '$(basename).ts' };
+		const dependencies = dependenciesFor([destination('Archive', '/workspace/notes/archive')],
+			[{ path: '/workspace', name: 'Workspace' }], { '**/*.js': conditional });
+		await configureMoveDestinationAutoRevealExclude(dependencies);
+		assert.deepStrictEqual(dependencies.updated, [{ '**/*.js': conditional, 'notes/archive/**': true }]);
+		assert.deepStrictEqual(mergeAutoRevealExclusions({ 'notes/archive/**': conditional }, ['notes/archive/**']),
+			{ value: { 'notes/archive/**': conditional }, added: 0 });
+	});
+
+	test('re-reads workspace exclusions after confirmation', async () => {
+		const dependencies = dependenciesFor([destination('Archive', '/workspace/notes/archive')],
+			[{ path: '/workspace', name: 'Workspace' }]);
+		dependencies.confirm = async () => {
+			dependencies.getWorkspaceExclusions = () => ({ 'new/**': { when: '$(basename).ts' } });
+			return true;
+		};
+		await configureMoveDestinationAutoRevealExclude(dependencies);
+		assert.deepStrictEqual(dependencies.updated, [{ 'new/**': { when: '$(basename).ts' }, 'notes/archive/**': true }]);
 	});
 
 	test('does not update settings when confirmation is cancelled', async () => {

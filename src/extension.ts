@@ -11,6 +11,8 @@ import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate }
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
 import { moveCore } from './moveCore';
 import { configureMoveDestinationAutoRevealExclude } from './autoRevealExclude';
+import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
+import { resolveNoteFilePath, sanitizeNoteTitle } from './dateNoteFile';
 
 const markdownTableLinePattern = /^\s*\|.*\|\s*$/;
 
@@ -78,7 +80,9 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('vsmemo.createDateNote', async (resource?: vscode.Uri) => {
 			try {
-				const config = vscode.workspace.getConfiguration('vsmemo');
+				const contextResource = resource ?? vscode.window.activeTextEditor?.document.uri;
+				const workspacePath = getWorkspacePath(contextResource);
+				const config = vscode.workspace.getConfiguration('vsmemo', contextResource);
 				const format = config.get<string>('fileNameFormat')!;
 				let dirStat: fs.Stats | undefined;
 				let dir: string;
@@ -91,15 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
 						return;
 					}
 				} else {
-					dir = config.get<string>('createDirectory')!;
-					if (dir.includes('${workspaceFolder}')) {
-						const folders = vscode.workspace.workspaceFolders;
-						if (!folders || folders.length === 0) {
-							vscode.window.showErrorMessage('No workspace folder is open');
-							return;
-						}
-						dir = dir.replace('${workspaceFolder}', folders[0].uri.fsPath);
-					}
+					dir = resolveWorkspacePath(config.get<string>('createDirectory')!, workspacePath);
 				}
 
 				const userTitle = await vscode.window.showInputBox({ prompt: 'Please enter a title' });
@@ -137,10 +133,11 @@ export function activate(context: vscode.ExtensionContext) {
 					.replace(/\$\{yyyy\}/g, yyyy)
 					.replace(/\$\{MM\}/g, MM)
 					.replace(/\$\{dd\}/g, dd)
-					.replace(/\$\{title\}/g, userTitle)
+					.replace(/\$\{title\}/g, () => sanitizeNoteTitle(userTitle))
 					.replace(/\$\{ext\}/g, userExt);
 
-				const selectedTemplate = await selectDateNoteTemplate(config);
+				const filePath = resolveNoteFilePath(dir, fileName);
+				const selectedTemplate = await selectDateNoteTemplate(config, workspacePath);
 				if (!selectedTemplate) {
 					return;
 				}
@@ -156,15 +153,23 @@ export function activate(context: vscode.ExtensionContext) {
 					});
 				}
 
-				const filePath = path.join(dir, fileName);
-				await fs.promises.writeFile(filePath, content);
+				try {
+					await fs.promises.writeFile(filePath, content, { flag: 'wx' });
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+						vscode.window.showErrorMessage(`Note already exists: ${fileName}`);
+						return;
+					}
+					throw error;
+				}
 				const doc = await vscode.workspace.openTextDocument(filePath);
 				await vscode.window.showTextDocument(doc);
 			} catch (err: any) {
 				if ((err as DateNoteTemplateError).alreadyShown) {
 					return;
 				}
-				vscode.window.showErrorMessage('Failed to create note: ' + err.message);
+				vscode.window.showErrorMessage(err.message === 'No workspace folder is open'
+					? err.message : 'Failed to create note: ' + err.message);
 			}
 		}),
 		// --- New commands from here ---
@@ -240,7 +245,8 @@ export function activate(context: vscode.ExtensionContext) {
 			const sel = editor.selection;
 			const text = editor.document.getText(sel);
 			const lines = text.split('\n');
-			const cells = lines.map(line => line.split(delimiter).map(cell => cell.trim()));
+			const separatorText = delimiter === '\\t' ? '\t' : delimiter;
+			const cells = lines.map(line => line.split(separatorText).map(cell => cell.trim()));
 			const colCount = Math.max(...cells.map(arr => arr.length));
 			const header = Array(colCount).fill(''); // empty header
 			const separator = Array(colCount).fill('---');
@@ -293,7 +299,8 @@ export function activate(context: vscode.ExtensionContext) {
 			// Determine the index of the data row to delete based on cursor position.
 			const relLine = editor.selection.active.line - tableAtCursor.start;
 			// relLine mapping: 0 for header, 1 for separator, 2+ for data rows.
-			let rowIdx = Math.max(0, relLine - 2);
+			if (relLine < 2) { return; }
+			const rowIdx = relLine - 2;
 			if (table.rows.length > 0 && rowIdx < table.rows.length) {
 				table.rows.splice(rowIdx, 1);
 				await replaceTable(editor, tableAtCursor);
@@ -366,8 +373,8 @@ export function activate(context: vscode.ExtensionContext) {
 			await moveCore({ context });
 		}),
 		vscode.commands.registerCommand('vsmemo.archiveCurrentNote', async () => {
-			const config = vscode.workspace.getConfiguration('vsmemo');
-			const archiveKey = config.get<string | null>('archiveDestinationKey');
+			const archiveKey = vscode.workspace.getConfiguration('vsmemo', vscode.window.activeTextEditor?.document.uri)
+				.get<string | null>('archiveDestinationKey');
 			if (!archiveKey) {
 				vscode.window.showErrorMessage('Move cancelled. Archive destination is not configured.');
 				return;

@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
-import { resolveWorkspacePath } from './pathUtils';
+import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
 
-export interface MoveDestination {
+export interface ConfiguredMoveDestination {
 	name: string;
 	rawPath: string;
+}
+
+export interface MoveDestination extends ConfiguredMoveDestination {
 	resolvedPath: string;
 }
 
@@ -11,8 +14,8 @@ export interface MoveDestination {
  * Loads and validates move destinations from user configuration.
  * Throws clear error messages if validation fails.
  */
-export function loadMoveDestinations(): MoveDestination[] {
-	const config = vscode.workspace.getConfiguration('vsmemo');
+export function loadConfiguredMoveDestinations(resource?: vscode.Uri): ConfiguredMoveDestination[] {
+	const config = vscode.workspace.getConfiguration('vsmemo', resource);
 	const destinations = config.get<Record<string, unknown>>('moveDestinations');
 
 	if (!destinations) {
@@ -24,7 +27,7 @@ export function loadMoveDestinations(): MoveDestination[] {
 		throw new Error('No preset move destinations are configured.');
 	}
 
-	const result: MoveDestination[] = [];
+	const result: ConfiguredMoveDestination[] = [];
 
 	for (const key of keys) {
 		if (!key || key.trim() === '') {
@@ -40,22 +43,21 @@ export function loadMoveDestinations(): MoveDestination[] {
 			throw new Error(`Invalid configuration: Destination path for "${key}" cannot be empty.`);
 		}
 
-		let resolvedPath: string;
+		result.push({ name: key, rawPath });
+	}
+
+	return result;
+}
+
+export function loadMoveDestinations(resource?: vscode.Uri, workspacePath: string | null | undefined = getWorkspacePath(resource)): MoveDestination[] {
+	return loadConfiguredMoveDestinations(resource).map(destination => {
 		try {
-			resolvedPath = resolveWorkspacePath(rawPath);
+			return { ...destination, resolvedPath: resolveWorkspacePath(destination.rawPath, workspacePath) };
 		} catch (error) {
 			if (error instanceof Error && error.message === 'No workspace folder is open') {
 				throw new Error('Move cancelled. No workspace folder is open.');
 			}
 			throw error;
 		}
-
-		result.push({
-			name: key,
-			rawPath,
-			resolvedPath
-		});
-	}
-
-	return result;
+	});
 }
