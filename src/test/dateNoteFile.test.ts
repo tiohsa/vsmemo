@@ -5,9 +5,11 @@ import { resolveNoteFilePath, sanitizeNoteTitle } from '../dateNoteFile';
 suite('Date note filenames', () => {
 	for (const [input, expected] of [
 		['日本語のメモ', '日本語のメモ'], ['café 🎉', 'café 🎉'],
-		['../escape', '___escape'], ['..\\escape', '___escape'],
+		['../escape', '.._escape'], ['..\\escape', '.._escape'],
 		['<>:"/\\|?*', '_________'], ['.', '_'], ['..', '__'],
-		['trailing.  ', 'trailing_'], ['CON', '_CON'], ['report', 'report']
+		['trailing.  ', 'trailing_'], ['CON', '_CON'], ['CON.notes', '_CON.notes'],
+		['meeting.v2', 'meeting.v2'], ['release.2026.09', 'release.2026.09'],
+		['report.', 'report_'], ['report', 'report']
 	]) {
 		test(`sanitizes ${JSON.stringify(input)} as one filename component`, () => {
 			assert.strictEqual(sanitizeNoteTitle(input), expected);

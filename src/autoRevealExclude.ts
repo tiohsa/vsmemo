@@ -43,7 +43,7 @@ export function buildAutoRevealExclusionGlob(workspaceFolderPath: string, destin
 	if (/[\[\]{}*?!]/.test(relativePath)) { return undefined; }
 
 	if (!relativePath || relativePath === '.') {
-		return '**';
+		return undefined;
 	}
 
 	return `${relativePath.split(/[\\/]/).join('/')}/**`;

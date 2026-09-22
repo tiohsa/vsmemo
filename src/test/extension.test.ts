@@ -325,6 +325,119 @@ function ensureActivated(context: vscode.ExtensionContext) {
 	}
 }
 
+suite('Extension Test Suite - vsmemo.listMarkdownFilesInDir', () => {
+	let directory: string;
+	let outputPath: string;
+	const outputName = 'markdown_files_list.md';
+	const execute = () => vscode.commands.executeCommand('vsmemo.listMarkdownFilesInDir');
+
+	setup(() => {
+		directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vsmemo-list-'));
+		outputPath = path.join(directory, outputName);
+		currentActiveTextEditorStub = sinon.stub().returns({ document: { uri: vscode.Uri.file(path.join(directory, 'a.md')) } });
+		currentShowInputBoxStub = sinon.stub().resolves(outputName);
+		currentShowWarningMessageSpy = sinon.stub().resolves(undefined);
+		currentShowInformationMessageSpy = sinon.stub();
+		currentShowErrorMessageSpy = sinon.stub();
+		readdirStub = sinon.stub().resolves(['b.md', 'ignore.txt', 'a.md', 'upper.MD']);
+		statStub = sinon.stub().callsFake(async (filePath: string) => fs.statSync(filePath));
+		writeFileStub = sinon.stub().callsFake(async (filePath: string, content: string, options: fs.WriteFileOptions) => {
+			fs.writeFileSync(filePath, content, options);
+		});
+		ensureActivated(sharedMockContext);
+	});
+
+	teardown(() => {
+		currentActiveTextEditorStub = undefined;
+		currentShowInputBoxStub = undefined;
+		currentShowWarningMessageSpy = undefined;
+		currentShowInformationMessageSpy = undefined;
+		currentShowErrorMessageSpy = undefined;
+		readdirStub = undefined;
+		statStub = undefined;
+		writeFileStub = undefined;
+		fs.rmSync(directory, { recursive: true, force: true });
+	});
+
+	test('creates a new list without confirmation and preserves links, filtering and ordering', async () => {
+		await execute();
+		assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), '[b](./b.md)\n[a](./a.md)\n[upper](./upper.MD)');
+		assert(currentShowWarningMessageSpy.notCalled);
+		assert(readdirStub.calledOnceWithExactly(directory));
+		assert.strictEqual(currentShowInputBoxStub.firstCall.args[0].value, outputName);
+		assert(currentShowInformationMessageSpy.calledOnceWithExactly(`Markdown file list saved to ${outputName}`));
+		assert(currentShowErrorMessageSpy.notCalled);
+	});
+
+	test('rejects unsafe output returned from the prompt before writing', async () => {
+		for (const fileName of ['../README.md', '../../outside.md', 'nested/index.md', 'nested\\index.md', '/absolute.md', 'C:\\outside.md', '', ' ', 'notes.txt']) {
+			currentShowInputBoxStub.resolves(fileName);
+			await execute();
+		}
+		assert(writeFileStub.notCalled);
+		assert(statStub.notCalled);
+		assert(currentShowWarningMessageSpy.notCalled);
+		assert.strictEqual(currentShowErrorMessageSpy.callCount, 9);
+	});
+
+	for (const response of ['Cancel', undefined]) {
+		test(`preserves the existing file when overwrite is ${response === undefined ? 'dismissed' : 'cancelled'}`, async () => {
+			fs.writeFileSync(outputPath, 'original content');
+			currentShowWarningMessageSpy.resolves(response);
+			await execute();
+			assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), 'original content');
+			assert(writeFileStub.notCalled);
+			assert(currentShowWarningMessageSpy.calledOnceWithExactly(`"${outputName}" already exists. Overwrite it?`, { modal: true }, 'Overwrite', 'Cancel'));
+			assert(currentShowInformationMessageSpy.notCalled);
+		});
+	}
+
+	test('overwrites only after confirmation and excludes itself while keeping other Markdown files', async () => {
+		fs.writeFileSync(outputPath, 'original content');
+		readdirStub.resolves(['a.md', outputName, 'b.md']);
+		currentShowWarningMessageSpy.resolves('Overwrite');
+		await execute();
+		assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), '[a](./a.md)\n[b](./b.md)');
+		assert(writeFileStub.calledOnce);
+		assert(currentShowWarningMessageSpy.calledBefore(writeFileStub));
+		assert(currentShowErrorMessageSpy.notCalled);
+	});
+
+	for (const sameFile of [true, false]) {
+		test(`${sameFile ? 'excludes' : 'keeps'} a case variant when filesystem identity is ${sameFile ? 'the same' : 'different'}`, async () => {
+			const caseVariant = 'MARKDOWN_FILES_LIST.MD';
+			readdirStub.resolves(['a.md', caseVariant]);
+			statStub.withArgs(outputPath).resolves({ dev: 1, ino: 42 });
+			statStub.withArgs(path.join(directory, caseVariant)).resolves({ dev: 1, ino: sameFile ? 42 : 43 });
+			currentShowWarningMessageSpy.resolves('Overwrite');
+			await execute();
+			assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), sameFile
+				? '[a](./a.md)'
+				: `[a](./a.md)\n[MARKDOWN_FILES_LIST](./${caseVariant})`);
+		});
+	}
+
+	test('does not overwrite a file created after the existence check', async () => {
+		statStub.callsFake(async () => {
+			fs.writeFileSync(outputPath, 'concurrent creation');
+			throw Object.assign(new Error('Missing at initial check'), { code: 'ENOENT' });
+		});
+		await execute();
+		assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), 'concurrent creation');
+		assert(currentShowWarningMessageSpy.notCalled);
+		assert(currentShowErrorMessageSpy.calledOnce);
+		assert(currentShowInformationMessageSpy.notCalled);
+	});
+
+	test('does not write when checking an existing output fails', async () => {
+		statStub.rejects(Object.assign(new Error('Permission denied'), { code: 'EACCES' }));
+		await execute();
+		assert(writeFileStub.notCalled);
+		assert(currentShowWarningMessageSpy.notCalled);
+		assert(currentShowErrorMessageSpy.calledOnceWithExactly('Failed to list markdown files: Permission denied'));
+	});
+});
+
 suite('Extension Test Suite - vsmemo.createDateNote', () => {
 	vscode.window.showInformationMessage('Start all tests.');
 
@@ -494,7 +607,7 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		showInputBoxStub.resolves('../日本語\\note. ');
 		showQuickPickStub.callsFake(async (items: any[]) => items.find(item => item.label === 'daily'));
 		await executeCreateDateNoteCommand();
-		assert.strictEqual(writeFileStub.firstCall.args[0], path.join(path.sep, 'test', 'notes', '___日本語_note_.md'));
+		assert.strictEqual(writeFileStub.firstCall.args[0], path.join(path.sep, 'test', 'notes', '.._日本語_note_.md'));
 		assert(writeFileStub.firstCall.args[1].startsWith('# ../日本語\\note. '));
 	});
 

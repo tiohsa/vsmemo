@@ -2,11 +2,15 @@ import * as path from 'path';
 
 /** Keep the title readable while making it a portable filename component. */
 export function sanitizeNoteTitle(title: string): string {
-	const sanitized = title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\./g, '_').trim();
+	const sanitized = title
+		.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+		.trim()
+		.replace(/\.+$/g, dots => '_'.repeat(dots.length));
 	if (!sanitized) {
 		throw new Error('Title must contain a filename character.');
 	}
-	return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(sanitized) ? `_${sanitized}` : sanitized;
+	const deviceName = sanitized.split('.')[0].replace(/[ .]+$/g, '');
+	return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(deviceName) ? `_${sanitized}` : sanitized;
 }
 
 /** Filename formats cannot escape the selected directory or introduce subdirectories. */

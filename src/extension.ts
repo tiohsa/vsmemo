@@ -13,6 +13,7 @@ import { moveCore } from './moveCore';
 import { configureMoveDestinationAutoRevealExclude } from './autoRevealExclude';
 import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
 import { resolveNoteFilePath, sanitizeNoteTitle } from './dateNoteFile';
+import { resolveMarkdownListFilePath, validateMarkdownListFileName } from './markdownListFile';
 
 const markdownTableLinePattern = /^\s*\|.*\|\s*$/;
 
@@ -349,18 +350,41 @@ export function activate(context: vscode.ExtensionContext) {
 				const outFileName = await vscode.window.showInputBox({
 					prompt: 'Enter the output file name (with .md extension)',
 					value: 'markdown_files_list.md',
-					validateInput: (v) => v.trim() === '' ? 'File name is required' : (v.endsWith('.md') ? undefined : 'File name must end with .md')
+					validateInput: validateMarkdownListFileName
 				});
 				if (!outFileName) {
 					vscode.window.showErrorMessage('No file name was entered.');
 					return;
 				}
-				const outFilePath = path.join(dir, outFileName);
-				const content = mdFiles.map(f => {
+				const outFilePath = resolveMarkdownListFilePath(dir, outFileName);
+				let existingOutput: fs.Stats | undefined;
+				try {
+					existingOutput = await fs.promises.stat(outFilePath);
+				} catch (err) {
+					if ((err as NodeJS.ErrnoException).code !== 'ENOENT') { throw err; }
+				}
+				if (existingOutput) {
+					const answer = await vscode.window.showWarningMessage(
+						`"${outFileName}" already exists. Overwrite it?`,
+						{ modal: true }, 'Overwrite', 'Cancel'
+					);
+					if (answer !== 'Overwrite') { return; }
+				}
+				const sourceFiles: string[] = [];
+				for (const file of mdFiles) {
+					if (file === outFileName) { continue; }
+					// Check identity for case variants so case-sensitive volumes keep distinct files.
+					if (existingOutput && file.toLowerCase() === outFileName.toLowerCase()) {
+						const candidate = await fs.promises.stat(path.join(dir, file));
+						if (candidate.dev === existingOutput.dev && candidate.ino === existingOutput.ino) { continue; }
+					}
+					sourceFiles.push(file);
+				}
+				const content = sourceFiles.map(f => {
 					const nameWithoutExt = f.replace(/\.md$/i, '');
 					return `[${nameWithoutExt}](./${f})`;
 				}).join('\n');
-				await fs.promises.writeFile(outFilePath, content, 'utf-8');
+				await fs.promises.writeFile(outFilePath, content, { encoding: 'utf-8', flag: existingOutput ? 'w' : 'wx' });
 				vscode.window.showInformationMessage(`Markdown file list saved to ${outFileName}`);
 			} catch (err: any) {
 				vscode.window.showErrorMessage('Failed to list markdown files: ' + err.message);

@@ -68,6 +68,11 @@ function dependenciesFor(
 }
 
 suite('Explorer auto-reveal exclusions', () => {
+	test('skips destinations equal to the workspace root', () => {
+		assert.strictEqual(buildAutoRevealExclusionGlob('/workspace', '/workspace'), undefined);
+		assert.strictEqual(buildAutoRevealExclusionGlob('/workspace', '/workspace/notes/..'), undefined);
+	});
+
 	test('converts workspace destinations to forward-slash globs', () => {
 		assert.strictEqual(
 			buildAutoRevealExclusionGlob('/workspace', '/workspace/notes/archive'),
@@ -77,6 +82,33 @@ suite('Explorer auto-reveal exclusions', () => {
 			buildAutoRevealExclusionGlob('/workspace', '/workspace/notes\\archive'),
 			'notes/archive/**'
 		);
+	});
+
+	test('does not prompt or write exclusions when every destination is the workspace root', async () => {
+		const dependencies = dependenciesFor([
+			destination('Absolute root', '/workspace'),
+			destination('Variable root', '${workspaceFolder}'),
+			destination('Relative root', '.')
+		], [{ path: '/workspace', name: 'Workspace' }]);
+
+		await configureMoveDestinationAutoRevealExclude(dependencies);
+
+		assert.deepStrictEqual(dependencies.confirmations, []);
+		assert.deepStrictEqual(dependencies.updated, []);
+		assert.match(dependencies.messages[0], /0 added, 0 already configured, 3 skipped/);
+	});
+
+	test('excludes nested destinations while reporting the workspace root as skipped', async () => {
+		const dependencies = dependenciesFor([
+			destination('Root', '/workspace'),
+			destination('Archive', '/workspace/notes/archive')
+		], [{ path: '/workspace', name: 'Workspace' }]);
+
+		await configureMoveDestinationAutoRevealExclude(dependencies);
+
+		assert.deepStrictEqual(dependencies.confirmations, [['notes/archive/**']]);
+		assert.deepStrictEqual(dependencies.updated, [{ 'notes/archive/**': true }]);
+		assert.match(dependencies.messages[0], /1 added, 0 already configured, 1 skipped/);
 	});
 
 	test('preserves existing exclusions and is idempotent', () => {

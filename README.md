@@ -22,6 +22,7 @@ VSMemo is a Visual Studio Code extension designed to streamline your Markdown no
   - **Recent Destinations**: Remembers up to 5 recently used destinations and pins them to the top of the destination picker.
   - **Move Confirmation**: Displays a preview summary (showing the destination and number of files) before performing a multi-file move operation to avoid accidents.
   - **Auto Index Update**: Automatically updates the `index.md` file (or a configured file name) in the destination folder. It dynamically updates links under a dedicated section wrapped in `<!-- VSMemo Index Start -->` and `<!-- VSMemo Index End -->`.
+  - **Explorer Auto-Reveal Exclusions**: The `VSMemo: Prevent Explorer Reveal for Move Destinations` command reads `vsmemo.moveDestinations` and, after confirmation, adds workspace-level `explorer.autoRevealExclude` entries while preserving existing exclusions. Normal file moves do not change settings. Unsupported or ambiguous destinations are skipped, including multi-root workspaces where root-specific relative globs cannot be guaranteed.
 
 ---
 
@@ -77,6 +78,7 @@ Date: ${date}
    - **VSMemo: Quick Move Current File**: Move the active document to a preset folder.
    - **VSMemo: Archive Current Note**: Directly move the active document to the configured archive folder.
    - **VSMemo: Clear Recent Destinations**: Clears the history of recently used destination folders.
+   - **VSMemo: Prevent Explorer Reveal for Move Destinations**: After confirmation, adds workspace-level Explorer exclusions for supported configured move destinations. It preserves existing exclusions and skips unsupported or ambiguous paths.
 
 ---
 
