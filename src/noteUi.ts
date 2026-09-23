@@ -5,6 +5,8 @@ import { loadMoveDestinations } from './moveDestinations';
 import { NoteHistory } from './noteHistory';
 import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
 
+const headingCacheLimit = 512;
+const headingRefreshIntervalMs = 100;
 const headingCache = new Map<string, { mtimeMs: number; size: number; title?: string }>();
 
 async function noteHeading(uri: vscode.Uri): Promise<string | undefined> {
@@ -12,7 +14,11 @@ async function noteHeading(uri: vscode.Uri): Promise<string | undefined> {
 	try {
 		const stat = await fs.promises.stat(uri.fsPath);
 		const cached = headingCache.get(key);
-		if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) { return cached.title; }
+		if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+			headingCache.delete(key);
+			headingCache.set(key, cached);
+			return cached.title;
+		}
 		const handle = await fs.promises.open(uri.fsPath, 'r');
 		let title: string | undefined;
 		try {
@@ -20,7 +26,11 @@ async function noteHeading(uri: vscode.Uri): Promise<string | undefined> {
 			const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
 			title = bytes.subarray(0, bytesRead).toString('utf8').match(/^#\s+(.+)$/m)?.[1].trim();
 		} finally { await handle.close(); }
+		headingCache.delete(key);
 		headingCache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, title });
+		while (headingCache.size > headingCacheLimit) {
+			headingCache.delete(headingCache.keys().next().value!);
+		}
 		return title;
 	} catch {
 		headingCache.delete(key);
@@ -59,13 +69,16 @@ export async function findNote(history: NoteHistory): Promise<void> {
 		const picker = vscode.window.createQuickPick<NoteQuickPickItem>();
 		const cancellation = new vscode.CancellationTokenSource();
 		let finished = false;
+		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 		picker.placeholder = 'メモを検索（見出し・ファイル名・パス）';
 		picker.matchOnDescription = true;
 		picker.matchOnDetail = true;
+		picker.keepScrollPosition = true;
 		picker.busy = true;
 		const finish = (item?: NoteQuickPickItem) => {
 			if (finished) { return; }
 			finished = true;
+			clearTimeout(refreshTimer);
 			cancellation.cancel();
 			cancellation.dispose();
 			picker.dispose();
@@ -100,19 +113,41 @@ export async function findNote(history: NoteHistory): Promise<void> {
 					detail: path.basename(uri.fsPath),
 					uri
 				}));
-				picker.items = items;
+				picker.items = [...items];
 				if (items.length === 0) { picker.placeholder = 'メモが見つかりません'; }
+				let changed = false;
+				const refresh = () => {
+					clearTimeout(refreshTimer);
+					refreshTimer = undefined;
+					if (finished || !changed) { return; }
+					changed = false;
+					const activeUris = new Set(picker.activeItems.map(item => item.uri.toString()));
+					picker.items = [...items];
+					const activeItems = items.filter(item => activeUris.has(item.uri.toString()));
+					if (activeItems.length > 0) {
+						// Quick Pick filters hidden items when applying activeItems; keep its native matching.
+						picker.activeItems = activeItems;
+					}
+				};
 				for (let start = 0; start < items.length && !finished; start += 8) {
 					const batch = items.slice(start, start + 8);
 					const headings = await Promise.all(batch.map(item => noteHeading(item.uri)));
 					if (finished) { return; }
 					for (let index = 0; index < batch.length; index++) {
-						if (headings[index]) { batch[index].label = headings[index]!; }
+						const label = headings[index];
+						if (label && label !== batch[index].label) {
+							items[start + index] = { ...batch[index], label };
+							changed = true;
+						}
 					}
-					picker.items = [...items];
+					if (changed && refreshTimer === undefined) {
+						refreshTimer = setTimeout(refresh, headingRefreshIntervalMs);
+					}
 				}
+				refresh();
 				picker.busy = false;
 			} catch {
+				clearTimeout(refreshTimer);
 				if (!finished) {
 					picker.busy = false;
 					picker.placeholder = 'メモを検索できませんでした';

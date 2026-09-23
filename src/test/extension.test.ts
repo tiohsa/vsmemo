@@ -2252,6 +2252,7 @@ suite('Memo search', () => {
 		const headingReady = new Promise<void>(resolve => { headingLoaded = resolve; });
 		const picker = {
 			placeholder: '', matchOnDescription: false, matchOnDetail: false, busy: false,
+			activeItems: [],
 			selectedItems: [],
 			get items() { return currentItems; },
 			set items(value: { label: string; detail?: string }[]) {
