@@ -8,13 +8,17 @@ export interface MoveOptions {
 	selectedUri?: vscode.Uri;
 	allSelectedUris?: vscode.Uri[];
 	fixedDestinationKey?: string;
+	archive?: boolean;
 }
+
+const movedFiles = new vscode.EventEmitter<{ source: vscode.Uri; target: vscode.Uri }>();
+export const onDidMoveFile = movedFiles.event;
 
 /**
  * Common move workflow (Move Core)
  */
 export async function moveCore(options: MoveOptions): Promise<void> {
-	const { context, selectedUri, allSelectedUris, fixedDestinationKey } = options;
+	const { context, selectedUri, allSelectedUris, fixedDestinationKey, archive = false } = options;
 
 	// Resolve targets
 	let uris: vscode.Uri[] = [];
@@ -107,7 +111,7 @@ export async function moveCore(options: MoveOptions): Promise<void> {
 		// Used by Archive command or presets with specific key
 		selectedDest = destinations.find(d => d.name === fixedDestinationKey);
 		if (!selectedDest) {
-			vscode.window.showErrorMessage(`Move cancelled. Archive destination key "${fixedDestinationKey}" does not exist.`);
+			vscode.window.showErrorMessage(`Move cancelled. ${archive ? 'Archive destination' : 'Destination'} key "${fixedDestinationKey}" does not exist.`);
 			return;
 		}
 	} else {
@@ -247,6 +251,7 @@ export async function moveCore(options: MoveOptions): Promise<void> {
 	for (const move of moves) {
 		try {
 			await vscode.workspace.fs.rename(move.source, move.target, { overwrite: false });
+			movedFiles.fire({ source: move.source, target: move.target });
 			successCount++;
 			successfullyMovedFiles.push(move.target);
 		} catch {
@@ -330,13 +335,13 @@ export async function moveCore(options: MoveOptions): Promise<void> {
 	if (failCount === 0) {
 		const destName = selectedDest.name;
 		if (successCount === 1) {
-			if (fixedDestinationKey) {
-				vscode.window.showInformationMessage('Archived current note.');
+			if (archive) {
+				vscode.window.setStatusBarMessage('VSMemo: メモをアーカイブしました。', 5000);
 			} else {
-				vscode.window.showInformationMessage(`Moved 1 file to "${destName}".`);
+				vscode.window.setStatusBarMessage(`VSMemo: ${moves[0].filename} を ${destName} へ移動しました。`, 5000);
 			}
 		} else {
-			vscode.window.showInformationMessage(`Moved ${successCount} files to "${destName}".`);
+			vscode.window.setStatusBarMessage(`VSMemo: ${successCount}件のファイルを ${destName} へ移動しました。`, 5000);
 		}
 	} else if (successCount > 0) {
 		vscode.window.showWarningMessage(`Move partially failed. ${successCount} succeeded, ${failCount} failed.`);

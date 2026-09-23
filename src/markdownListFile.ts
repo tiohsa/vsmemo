@@ -4,8 +4,11 @@ export function validateMarkdownListFileName(fileName: string): string | undefin
 	if (!fileName.trim()) {
 		return 'File name is required';
 	}
-	if (/[/\\:\x00]/.test(fileName)) {
+	if (/[<>:"/\\|?*\x00-\x1f]/.test(fileName)) {
 		return 'File name must be a single filename without a path';
+	}
+	if (/[. ]$/.test(fileName) || /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(fileName)) {
+		return 'File name is reserved or ends with a dot or space';
 	}
 	if (!fileName.endsWith('.md')) {
 		return 'File name must end with .md';

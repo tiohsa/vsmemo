@@ -6,10 +6,13 @@ import * as path from 'path';
 import { format as formatDate } from 'date-fns';
 import { generateEmptyTable, isMarkdownTableSeparator, parseMarkdownTable, stringifyMarkdownTable } from './markdownTableUtils';
 import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
-import { SidebarProvider } from './sidebarProvider';
+import { NoteItem, SidebarProvider } from './sidebarProvider';
+import { DestinationItem, DestinationProvider } from './destinationProvider';
+import { NoteHistory } from './noteHistory';
+import { findNote, isMemoUri, showMemoActions } from './noteUi';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
-import { moveCore } from './moveCore';
+import { moveCore, onDidMoveFile } from './moveCore';
 import { configureMoveDestinationAutoRevealExclude } from './autoRevealExclude';
 import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
 import { resolveNoteFilePath, sanitizeNoteTitle } from './dateNoteFile';
@@ -78,7 +81,94 @@ async function replaceTable(
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+	const history = new NoteHistory(context.workspaceState);
+	const sidebarProvider = new SidebarProvider(history);
+	const destinationProvider = new DestinationProvider();
+	const noteView = vscode.window.createTreeView('vsmemoSidebarView', { treeDataProvider: sidebarProvider });
+	const destinationView = vscode.window.createTreeView('vsmemoDestinationView', { treeDataProvider: destinationProvider });
+	const updateEmptyMessage = () => {
+		noteView.message = history.recentUris.length === 0 && history.pinnedUris.length === 0
+			? '最近のメモはまだありません。見出しから作成または検索できます。'
+			: undefined;
+	};
+	updateEmptyMessage();
+	context.subscriptions.push(history.onDidChange(updateEmptyMessage));
+	const revealNote = async (uri: vscode.Uri) => {
+		const item = sidebarProvider.itemFor(uri);
+		if (item) {
+			try { await noteView.reveal(item, { select: true, focus: false, expand: false }); }
+			catch { /* The view may not be visible while the editor changes. */ }
+		}
+	};
+	let moveTarget = vscode.window.activeTextEditor?.document.uri;
+	const updateTarget = (uri?: vscode.Uri) => {
+		moveTarget = uri;
+		destinationProvider.setTarget(uri);
+		destinationView.message = destinationProvider.message;
+	};
+	updateTarget(moveTarget);
+	context.subscriptions.push(history, sidebarProvider, destinationProvider, noteView, destinationView);
+	context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => {
+		updateTarget(editor?.document.uri);
+		if (editor && isMemoUri(editor.document.uri)) {
+			void history.visit(editor.document.uri).then(() => revealNote(editor.document.uri));
+		}
+	}));
+	if (vscode.window.activeTextEditor && isMemoUri(vscode.window.activeTextEditor.document.uri)) {
+		const uri = vscode.window.activeTextEditor.document.uri;
+		void history.visit(uri).then(() => revealNote(uri));
+	}
+	context.subscriptions.push(onDidMoveFile(({ source, target }) => {
+		void history.move(source, target).then(() => revealNote(target));
+		if (moveTarget?.toString() === source.toString()) { updateTarget(target); }
+	}));
+	context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
+		for (const file of event.files) { void history.move(file.oldUri, file.newUri); }
+	}));
+	const watcher = vscode.workspace.createFileSystemWatcher('**/*.md');
+	context.subscriptions.push(watcher, watcher.onDidDelete(uri => { void history.remove(uri); }));
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+		if (event.affectsConfiguration('vsmemo.moveDestinations') || event.affectsConfiguration('explorer.autoRevealExclude')) {
+			destinationProvider.refresh();
+		}
+	}));
 	context.subscriptions.push(
+		vscode.commands.registerCommand('vsmemo.openNote', async (uri: vscode.Uri) => {
+			try {
+				await vscode.workspace.fs.stat(uri);
+				await vscode.window.showTextDocument(uri);
+			} catch (error) {
+				if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+					await history.remove(uri);
+					void vscode.window.showWarningMessage(`メモが見つかりません: ${path.basename(uri.fsPath)}`);
+				} else {
+					void vscode.window.showErrorMessage(`メモを開けません: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			}
+		}),
+		vscode.commands.registerCommand('vsmemo.togglePinNote', async (item?: NoteItem) => {
+			const uri = item?.uri ?? moveTarget;
+			if (uri && isMemoUri(uri)) { await history.togglePin(uri); }
+		}),
+		vscode.commands.registerCommand('vsmemo.findNote', async () => { await findNote(history); }),
+		vscode.commands.registerCommand('vsmemo.showActions', async () => {
+			await showMemoActions(history, editor => !!getTableAtCursor(editor));
+		}),
+		vscode.commands.registerCommand('vsmemo.moveToDestination', async (item: DestinationItem) => {
+			const target = moveTarget;
+			if (!target) { void vscode.window.showWarningMessage('移動対象のファイルを開いてください。'); return; }
+			await moveCore({ context, selectedUri: target, fixedDestinationKey: item.destinationKey });
+		}),
+		vscode.commands.registerCommand('vsmemo.showMemoMore', async () => {
+			const choice = await vscode.window.showQuickPick([
+				{ label: 'VSMemoの操作', command: 'vsmemo.showActions' },
+				{ label: '現在のメモを固定・解除', command: 'vsmemo.togglePinNote' },
+				{ label: 'Markdownファイル一覧を作成', command: 'vsmemo.listMarkdownFilesInDir' },
+				{ label: '移動先の自動Reveal除外設定', command: 'vsmemo.configureMoveDestinationAutoRevealExclude' },
+				{ label: '移動先の履歴を消去', command: 'vsmemo.clearRecentDestinations' }
+			], { placeHolder: 'メモのその他の操作' });
+			if (choice) { await vscode.commands.executeCommand(choice.command); }
+		}),
 		vscode.commands.registerCommand('vsmemo.createDateNote', async (resource?: vscode.Uri) => {
 			try {
 				const contextResource = resource ?? vscode.window.activeTextEditor?.document.uri;
@@ -99,7 +189,34 @@ export function activate(context: vscode.ExtensionContext) {
 					dir = resolveWorkspacePath(config.get<string>('createDirectory')!, workspacePath);
 				}
 
-				const userTitle = await vscode.window.showInputBox({ prompt: 'Please enter a title' });
+				const now = new Date();
+				const yyyy = formatDate(now, 'yyyy');
+				const MM = formatDate(now, 'MM');
+				const dd = formatDate(now, 'dd');
+				const nameFor = (title: string) => format
+					.replace(/\$\{yyyy\}/g, yyyy)
+					.replace(/\$\{MM\}/g, MM)
+					.replace(/\$\{dd\}/g, dd)
+					.replace(/\$\{title\}/g, () => title)
+					.replace(/\$\{ext\}/g, 'md');
+				let previewStatus: vscode.Disposable | undefined;
+				let userTitle: string | undefined;
+				try {
+					userTitle = await vscode.window.showInputBox({
+						title: '日付メモの作成 — 1/2',
+						prompt: `保存先: ${path.join(dir, nameFor('＜タイトル＞'))}`,
+						validateInput: value => {
+							previewStatus?.dispose();
+							if (!value.trim()) { return 'Title is required'; }
+							try {
+								const filePath = resolveNoteFilePath(dir, nameFor(sanitizeNoteTitle(value)));
+								previewStatus = vscode.window.setStatusBarMessage(`保存先: ${filePath}`);
+								return undefined;
+							} catch (error) { return error instanceof Error ? error.message : String(error); }
+						}
+					});
+				} finally { previewStatus?.dispose(); }
+				if (userTitle === undefined) { return; }
 				if (!userTitle) {
 					vscode.window.showErrorMessage('No title was entered');
 					return;
@@ -125,20 +242,10 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 				}
 
-				const userExt = 'md';
-				const now = new Date();
-				const yyyy = formatDate(now, 'yyyy');
-				const MM = formatDate(now, 'MM');
-				const dd = formatDate(now, 'dd');
-				const fileName = format
-					.replace(/\$\{yyyy\}/g, yyyy)
-					.replace(/\$\{MM\}/g, MM)
-					.replace(/\$\{dd\}/g, dd)
-					.replace(/\$\{title\}/g, () => sanitizeNoteTitle(userTitle))
-					.replace(/\$\{ext\}/g, userExt);
+				const fileName = nameFor(sanitizeNoteTitle(userTitle));
 
 				const filePath = resolveNoteFilePath(dir, fileName);
-				const selectedTemplate = await selectDateNoteTemplate(config, workspacePath);
+				const selectedTemplate = await selectDateNoteTemplate(config, workspacePath, filePath);
 				if (!selectedTemplate) {
 					return;
 				}
@@ -323,6 +430,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const config = vscode.workspace.getConfiguration('vsmemo');
 			const defaultLang = config.get<string>('defaultCodeBlockLanguage', 'mermaid');
 			const language = await vscode.window.showInputBox({ prompt: 'Language for the code block', value: defaultLang });
+			if (language === undefined) { return; }
 			await wrapCodeBlock(editor, language || defaultLang);
 		}),
 		vscode.commands.registerCommand('vsmemo.insertTodayDate', async () => {
@@ -358,7 +466,12 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 				const outFilePath = resolveMarkdownListFilePath(dir, outFileName);
 				let existingOutput: fs.Stats | undefined;
+				let existingEntry: fs.Stats | undefined;
 				try {
+					existingEntry = await fs.promises.lstat(outFilePath);
+					if (!existingEntry.isFile() || existingEntry.isSymbolicLink()) {
+						throw new Error('Output must be a regular file.');
+					}
 					existingOutput = await fs.promises.stat(outFilePath);
 				} catch (err) {
 					if ((err as NodeJS.ErrnoException).code !== 'ENOENT') { throw err; }
@@ -384,7 +497,23 @@ export function activate(context: vscode.ExtensionContext) {
 					const nameWithoutExt = f.replace(/\.md$/i, '');
 					return `[${nameWithoutExt}](./${f})`;
 				}).join('\n');
-				await fs.promises.writeFile(outFilePath, content, { encoding: 'utf-8', flag: existingOutput ? 'w' : 'wx' });
+				if (existingEntry) {
+					const latest = await fs.promises.lstat(outFilePath);
+					if (!latest.isFile() || latest.isSymbolicLink() || latest.dev !== existingEntry.dev || latest.ino !== existingEntry.ino) {
+						throw new Error('Output file changed after confirmation.');
+					}
+					const handle = await fs.promises.open(outFilePath, fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW || 0));
+					try {
+						const opened = await handle.stat();
+						if (!opened.isFile() || opened.dev !== existingEntry.dev || opened.ino !== existingEntry.ino) {
+							throw new Error('Output file changed after confirmation.');
+						}
+						await handle.truncate(0);
+						await handle.writeFile(content, { encoding: 'utf-8' });
+					} finally { await handle.close(); }
+				} else {
+					await fs.promises.writeFile(outFilePath, content, { encoding: 'utf-8', flag: 'wx' });
+				}
 				vscode.window.showInformationMessage(`Markdown file list saved to ${outFileName}`);
 			} catch (err: any) {
 				vscode.window.showErrorMessage('Failed to list markdown files: ' + err.message);
@@ -403,7 +532,7 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.window.showErrorMessage('Move cancelled. Archive destination is not configured.');
 				return;
 			}
-			await moveCore({ context, fixedDestinationKey: archiveKey });
+			await moveCore({ context, fixedDestinationKey: archiveKey, archive: true });
 		}),
 		vscode.commands.registerCommand('vsmemo.clearRecentDestinations', async () => {
 			await context.workspaceState.update('vsmemo.recentDestinations', undefined);
@@ -414,11 +543,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	const sidebarProvider = new SidebarProvider();
-	const treeView = vscode.window.createTreeView('vsmemoSidebarView', {
-		treeDataProvider: sidebarProvider
-	});
-	context.subscriptions.push(treeView);
 }
 
 // This method is called when your extension is deactivated

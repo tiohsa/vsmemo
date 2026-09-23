@@ -26,7 +26,8 @@
     "commands": [
       {
         "command": "vsmemo.createDateNote",
-        "title": "Create Date Note"
+        "title": "Create Date Note",
+        "icon": "$(new-file)"
       },
       {
         "command": "vsmemo.createTableAtPosition",
@@ -87,6 +88,35 @@
       {
         "command": "vsmemo.configureMoveDestinationAutoRevealExclude",
         "title": "VSMemo: Prevent Explorer Reveal for Move Destinations"
+      },
+      {
+        "command": "vsmemo.openNote",
+        "title": "メモを開く"
+      },
+      {
+        "command": "vsmemo.togglePinNote",
+        "title": "メモの固定を切り替え",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "vsmemo.findNote",
+        "title": "メモを探す",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vsmemo.showActions",
+        "title": "VSMemoの操作",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "vsmemo.moveToDestination",
+        "title": "表示中のファイルをこの移動先へ移動",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "vsmemo.showMemoMore",
+        "title": "メモのその他の操作",
+        "icon": "$(ellipsis)"
       }
     ],
     "menus": {
@@ -167,6 +197,20 @@
           "when": "explorerResourceIsFolder == false",
           "group": "navigation"
         }
+      ],
+      "view/title": [
+        { "command": "vsmemo.createDateNote", "when": "view == vsmemoSidebarView", "group": "navigation@1" },
+        { "command": "vsmemo.findNote", "when": "view == vsmemoSidebarView", "group": "navigation@2" },
+        { "command": "vsmemo.showMemoMore", "when": "view == vsmemoSidebarView", "group": "navigation@3" },
+        { "command": "vsmemo.configureMoveDestinationAutoRevealExclude", "when": "view == vsmemoDestinationView", "group": "navigation@1" }
+      ],
+      "view/item/context": [
+        { "command": "vsmemo.togglePinNote", "when": "view == vsmemoSidebarView && viewItem == vsmemoNote", "group": "inline" },
+        { "command": "vsmemo.togglePinNote", "when": "view == vsmemoSidebarView && viewItem == vsmemoPinnedNote", "group": "inline" },
+        { "command": "vsmemo.moveToDestination", "when": "view == vsmemoDestinationView && viewItem == vsmemoDestination", "group": "inline" }
+      ],
+      "editor/title": [
+        { "command": "vsmemo.showActions", "group": "navigation" }
       ]
     },
     "viewsContainers": {
@@ -182,7 +226,11 @@
       "vsmemoSidebar": [
         {
           "id": "vsmemoSidebarView",
-          "name": "Markdown Tools"
+          "name": "メモ"
+        },
+        {
+          "id": "vsmemoDestinationView",
+          "name": "移動先"
         }
       ]
     },

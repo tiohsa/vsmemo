@@ -15,7 +15,9 @@ suite('Markdown list output filename', () => {
 		for (const fileName of [
 			'', '   ', '.', '..', '../README.md', '../../outside.md', 'nested/index.md',
 			'nested\\index.md', '/absolute.md', 'C:\\outside.md', 'C:outside.md',
-			'\\\\server\\share\\outside.md', 'notes.txt', 'notes.MD', 'bad\0.md'
+			'\\\\server\\share\\outside.md', 'notes.txt', 'notes.MD', 'bad\0.md',
+			'CON.md', 'con.txt.md', 'LPT9.md', 'COM¹.md', 'foo?.md', 'bad<name>.md',
+			'bad\u001f.md', 'trailing .md '
 		]) {
 			assert.notStrictEqual(validateMarkdownListFileName(fileName), undefined, fileName);
 			assert.throws(() => resolveMarkdownListFilePath(path.resolve('notes'), fileName), fileName);

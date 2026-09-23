@@ -398,14 +398,15 @@ suite('Extension Test Suite - vsmemo.listMarkdownFilesInDir', () => {
 		currentShowWarningMessageSpy.resolves('Overwrite');
 		await execute();
 		assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), '[a](./a.md)\n[b](./b.md)');
-		assert(writeFileStub.calledOnce);
-		assert(currentShowWarningMessageSpy.calledBefore(writeFileStub));
+		assert(writeFileStub.notCalled);
+		assert(currentShowWarningMessageSpy.calledBefore(currentShowInformationMessageSpy));
 		assert(currentShowErrorMessageSpy.notCalled);
 	});
 
 	for (const sameFile of [true, false]) {
 		test(`${sameFile ? 'excludes' : 'keeps'} a case variant when filesystem identity is ${sameFile ? 'the same' : 'different'}`, async () => {
 			const caseVariant = 'MARKDOWN_FILES_LIST.MD';
+			fs.writeFileSync(outputPath, 'old');
 			readdirStub.resolves(['a.md', caseVariant]);
 			statStub.withArgs(outputPath).resolves({ dev: 1, ino: 42 });
 			statStub.withArgs(path.join(directory, caseVariant)).resolves({ dev: 1, ino: sameFile ? 42 : 43 });
@@ -418,9 +419,10 @@ suite('Extension Test Suite - vsmemo.listMarkdownFilesInDir', () => {
 	}
 
 	test('does not overwrite a file created after the existence check', async () => {
-		statStub.callsFake(async () => {
+		writeFileStub.callsFake(async (_filePath: string, _content: string, options: fs.WriteFileOptions) => {
+			assert.strictEqual((options as { flag: string }).flag, 'wx');
 			fs.writeFileSync(outputPath, 'concurrent creation');
-			throw Object.assign(new Error('Missing at initial check'), { code: 'ENOENT' });
+			throw Object.assign(new Error('File already exists'), { code: 'EEXIST' });
 		});
 		await execute();
 		assert.strictEqual(fs.readFileSync(outputPath, 'utf8'), 'concurrent creation');
@@ -430,11 +432,54 @@ suite('Extension Test Suite - vsmemo.listMarkdownFilesInDir', () => {
 	});
 
 	test('does not write when checking an existing output fails', async () => {
+		fs.writeFileSync(outputPath, 'keep');
 		statStub.rejects(Object.assign(new Error('Permission denied'), { code: 'EACCES' }));
 		await execute();
 		assert(writeFileStub.notCalled);
 		assert(currentShowWarningMessageSpy.notCalled);
 		assert(currentShowErrorMessageSpy.calledOnceWithExactly('Failed to list markdown files: Permission denied'));
+	});
+
+	test('rejects a symbolic link output without changing its target', async () => {
+		const target = path.join(directory, 'target.md');
+		fs.writeFileSync(target, 'keep');
+		fs.symlinkSync(target, outputPath);
+		await execute();
+		assert.strictEqual(fs.readFileSync(target, 'utf8'), 'keep');
+		assert(currentShowWarningMessageSpy.notCalled);
+		assert(currentShowErrorMessageSpy.calledOnce);
+	});
+
+	test('rejects an output replaced with a symlink after confirmation', async () => {
+		const target = path.join(directory, 'target.md');
+		fs.writeFileSync(target, 'keep');
+		fs.writeFileSync(outputPath, 'old');
+		currentShowWarningMessageSpy.callsFake(async () => {
+			fs.unlinkSync(outputPath);
+			fs.symlinkSync(target, outputPath);
+			return 'Overwrite';
+		});
+		await execute();
+		assert.strictEqual(fs.readFileSync(target, 'utf8'), 'keep');
+		assert(currentShowErrorMessageSpy.calledOnce);
+	});
+});
+
+suite('Code block prompt cancellation', () => {
+	test('does not edit when language input is dismissed', async () => {
+		const edit = sinon.spy();
+		currentActiveTextEditorStub = () => ({ edit, document: { uri: vscode.Uri.file('/mock/workspace/note.md') } });
+		currentGetConfigurationStub = () => ({ get: () => 'mermaid' });
+		currentShowInputBoxStub = sinon.stub().resolves(undefined);
+		ensureActivated(sharedMockContext);
+		try {
+			await vscode.commands.executeCommand('vsmemo.wrapCodeBlock');
+			assert(edit.notCalled);
+		} finally {
+			currentActiveTextEditorStub = undefined;
+			currentGetConfigurationStub = undefined;
+			currentShowInputBoxStub = undefined;
+		}
 	});
 });
 
@@ -753,14 +798,29 @@ suite('Extension Test Suite - vsmemo.createDateNote', () => {
 		assert(statStub.notCalled, 'fs.stat should not be called');
 	});
 
-	test('Should show error if user does not enter a title', async () => {
+	test('Should silently cancel if user does not enter a title', async () => {
 		showInputBoxStub.resolves(undefined); // User cancels
 
 		await executeCreateDateNoteCommand();
 
 		assert(showInputBoxStub.calledOnce, 'showInputBox should be called');
-		assert(showErrorMessageSpy.calledOnceWith('No title was entered'), 'Error for no title');
+		assert(showErrorMessageSpy.notCalled, 'Cancellation should not show an error');
 		assert(writeFileStub.notCalled, 'fs.writeFile should not be called');
+	});
+
+	test('shows the resolved note path while the title is entered', async () => {
+		const dispose = sandbox.spy();
+		const status = sandbox.stub(vscode.window, 'setStatusBarMessage').returns({ dispose });
+		showInputBoxStub.callsFake(async (options: vscode.InputBoxOptions) => {
+			assert.strictEqual(options.title, '日付メモの作成 — 1/2');
+			assert.strictEqual(options.validateInput?.(''), 'Title is required');
+			assert.strictEqual(options.validateInput?.('API調査'), undefined);
+			assert(String(status.lastCall.args[0]).includes('API調査.md'));
+			return undefined;
+		});
+		await executeCreateDateNoteCommand();
+		assert(dispose.calledOnce);
+		assert(writeFileStub.notCalled);
 	});
 
 	test('Should handle existing directory without calling mkdir', async () => {
@@ -1153,7 +1213,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		assert(fsCreateDirectoryStub.calledOnce);
 		assert(fsRenameStub.calledOnce);
-		assert(showInformationMessageSpy.calledOnceWith('Moved 1 file to "Archive".'));
+		assert(showInformationMessageSpy.notCalled);
 	});
 
 	test('TC-02: Move multiple selected files successfully', async () => {
@@ -1178,7 +1238,7 @@ suite('Extension Test Suite - vsmemo.moveFilesToPresetFolder', () => {
 
 		assert(fsCreateDirectoryStub.calledOnce);
 		assert(fsRenameStub.calledTwice);
-		assert(showInformationMessageSpy.calledOnceWith('Moved 2 files to "Archive".'));
+		assert(showInformationMessageSpy.notCalled);
 	});
 
 	test('TC-03: Cancel QuickPick causes no side effects', async () => {
@@ -2118,7 +2178,7 @@ suite('Extension Test Suite - File Organization Suite (High-Priority)', () => {
 		assert(fsRenameStub.calledOnce);
 		assert(showWarningMessageSpy.calledOnce);
 		assert(showWarningMessageSpy.firstCall.args[0].includes('Auto Index Update failed'));
-		assert(showInformationMessageSpy.calledOnceWith('Moved 1 file to "Archive".'));
+		assert(showInformationMessageSpy.notCalled);
 	});
 
 	test('T-11: Only successfully moved files are added to the auto index on partial success', async () => {

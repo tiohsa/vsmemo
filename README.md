@@ -1,12 +1,12 @@
 # VSMemo
 
-VSMemo is a Visual Studio Code extension designed to streamline your Markdown note-taking and table editing experience. It allows you to quickly create date-stamped Markdown notes in your workspace using customized templates, manage complex Markdown tables with ease, organize your notes with the **File Organization Suite**, and access all utilities from a dedicated sidebar.
+VSMemo is a Visual Studio Code extension for creating Markdown notes, editing tables, and organizing files. Its sidebar shows recent and pinned notes alongside configured move destinations; editing commands remain available from the Command Palette and the editor action menu.
 
 ## Features
 
 - **Date Note Creation**: Easily spin up date-stamped Markdown notes with custom titles in a designated directory.
 - **Date Note Templates**: Configure and use custom Markdown templates for your date notes with dynamic variables.
-- **Dedicated Sidebar**: Access all VSMemo commands directly from the **VSMemo / Markdown Tools** sidebar in the Activity Bar.
+- **Memo Sidebar**: Open recent or pinned notes, search configured note folders, and inspect move destinations in the Activity Bar.
 - **Advanced Markdown Table Utilities**:
   - **Create Table**: Insert a Markdown table at the cursor with specified rows, columns, and optional headers.
   - **Edit Columns/Rows**: Insert and delete columns or rows at the cursor position.
@@ -28,7 +28,7 @@ VSMemo is a Visual Studio Code extension designed to streamline your Markdown no
 
 ## Dedicated Sidebar
 
-VSMemo adds a custom icon to your Activity Bar. Clicking it opens the **Markdown Tools** sidebar, which displays all available commands. Click any command in the sidebar to execute it immediately without having to open the Command Palette.
+VSMemo adds **Notes** and **Destinations** views to its Activity Bar container. The Notes view keeps the ten most recently opened Markdown notes from configured note folders and lets you pin notes. Its title actions create or search notes. Search matches headings, filenames, and paths when invoked. The Destinations view shows the active file and configured destinations; selecting a row does not move the file. Use its inline move action to perform the move. The editor title has one VSMemo action that lists commands for the current cursor position and editability.
 
 ---
 
@@ -62,8 +62,8 @@ Date: ${date}
 
 ## Usage
 
-1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`) or open the **VSMemo** Sidebar.
-2. Run or click one of the following commands:
+1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`), the **VSMemo** sidebar, or the VSMemo editor action.
+2. Run one of the following commands:
    - **Create Date Note**: Prompts you for a title, lets you select a template, and creates a note file.
    - **Create Markdown Table at Position**: Insert a table at the cursor. You will be prompted for row/column count and header.
    - **Insert Markdown Table Column**: Inserts a new column at the cursor's column position.

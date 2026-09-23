@@ -28,7 +28,8 @@ interface DateNoteTemplateQuickPickItem extends vscode.QuickPickItem {
 
 export async function selectDateNoteTemplate(
 	config: vscode.WorkspaceConfiguration,
-	workspacePath?: string
+	workspacePath?: string,
+	outputPath?: string
 ): Promise<SelectedDateNoteTemplate | undefined> {
 	const templateDirectory = resolveWorkspacePath(config.get<string>('dateNoteTemplateDirectory')!, workspacePath);
 	const templateRequired = config.get<boolean>('dateNoteTemplateRequired', false);
@@ -41,8 +42,10 @@ export async function selectDateNoteTemplate(
 			.sort((a, b) => a.localeCompare(b));
 
 		for (const file of templateFiles) {
-			items.push({
-				label: path.basename(file, path.extname(file)),
+				items.push({
+					label: path.basename(file, path.extname(file)),
+					description: 'Markdownテンプレート',
+					detail: file,
 				selectionKind: 'template',
 				templatePath: path.join(templateDirectory, file)
 			});
@@ -60,10 +63,13 @@ export async function selectDateNoteTemplate(
 	}
 
 	if (!templateRequired) {
-		items.unshift({ label: 'Blank note', selectionKind: 'blank' });
+			items.unshift({ label: 'Blank note', description: 'テンプレートを適用しない', selectionKind: 'blank' });
 	}
 
-	const selected = await vscode.window.showQuickPick(items, { placeHolder: 'Select a template' });
+		const selected = await vscode.window.showQuickPick(items, {
+			title: '日付メモの作成 — 2/2',
+			placeHolder: outputPath ? `保存先: ${outputPath}` : 'Select a template'
+		});
 	if (!selected) {
 		return undefined;
 	}
