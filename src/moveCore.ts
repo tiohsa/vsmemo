@@ -13,6 +13,10 @@ export interface MoveOptions {
 
 const movedFiles = new vscode.EventEmitter<{ source: vscode.Uri; target: vscode.Uri }>();
 export const onDidMoveFile = movedFiles.event;
+const movingFiles = new vscode.EventEmitter<vscode.Uri>();
+export const onWillMoveFile = movingFiles.event;
+const failedMoves = new vscode.EventEmitter<vscode.Uri>();
+export const onDidFailMoveFile = failedMoves.event;
 
 /**
  * Common move workflow (Move Core)
@@ -249,12 +253,14 @@ export async function moveCore(options: MoveOptions): Promise<void> {
 	const successfullyMovedFiles: vscode.Uri[] = [];
 
 	for (const move of moves) {
+		movingFiles.fire(move.source);
 		try {
 			await vscode.workspace.fs.rename(move.source, move.target, { overwrite: false });
 			movedFiles.fire({ source: move.source, target: move.target });
 			successCount++;
 			successfullyMovedFiles.push(move.target);
 		} catch {
+			failedMoves.fire(move.source);
 			failCount++;
 		}
 	}

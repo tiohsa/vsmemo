@@ -9,10 +9,11 @@ import { wrapCodeBlock, insertTodayDate } from './markdownEditUtils';
 import { NoteItem, SidebarProvider } from './sidebarProvider';
 import { DestinationItem, DestinationProvider } from './destinationProvider';
 import { NoteHistory } from './noteHistory';
+import { MoveHistoryTracker } from './moveHistoryTracker';
 import { findNote, isMemoUri, showMemoActions } from './noteUi';
 import { DateNoteTemplateError, renderDateNoteTemplate, selectDateNoteTemplate } from './dateNoteTemplate';
 import { moveFilesToPresetFolder } from './moveFilesToPresetFolder';
-import { moveCore, onDidMoveFile } from './moveCore';
+import { moveCore, onDidFailMoveFile, onDidMoveFile, onWillMoveFile } from './moveCore';
 import { configureMoveDestinationAutoRevealExclude } from './autoRevealExclude';
 import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
 import { resolveNoteFilePath, sanitizeNoteTitle } from './dateNoteFile';
@@ -119,15 +120,21 @@ export function activate(context: vscode.ExtensionContext) {
 		const uri = vscode.window.activeTextEditor.document.uri;
 		void history.visit(uri).then(() => revealNote(uri));
 	}
+	const moveHistory = new MoveHistoryTracker(history, async uri => {
+		try { await vscode.workspace.fs.stat(uri); return true; }
+		catch (error) { return !(error instanceof vscode.FileSystemError && error.code === 'FileNotFound'); }
+	});
+	context.subscriptions.push(onWillMoveFile(source => { moveHistory.begin(source); }));
 	context.subscriptions.push(onDidMoveFile(({ source, target }) => {
-		void history.move(source, target);
+		void moveHistory.complete(source, target);
 		if (moveTarget?.toString() === source.toString()) { updateTarget(target); }
 	}));
+	context.subscriptions.push(onDidFailMoveFile(source => { void moveHistory.fail(source); }));
 	context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
 		for (const file of event.files) { void history.move(file.oldUri, file.newUri); }
 	}));
 	const watcher = vscode.workspace.createFileSystemWatcher('**/*.md');
-	context.subscriptions.push(watcher, watcher.onDidDelete(uri => { void history.remove(uri); }));
+	context.subscriptions.push(watcher, watcher.onDidDelete(uri => { void moveHistory.deleted(uri); }));
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
 		if (event.affectsConfiguration('vsmemo.moveDestinations') || event.affectsConfiguration('explorer.autoRevealExclude')) {
 			destinationProvider.refresh();

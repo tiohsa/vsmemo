@@ -52,8 +52,9 @@ export class NoteHistory {
 		}))];
 		const recent = replace(this.recent);
 		const pinned = replace(this.pinned);
-		if (recent.every((item, index) => item === this.recent[index])
-			&& pinned.every((item, index) => item === this.pinned[index])) { return; }
+		const unchanged = (next: string[], current: string[]) =>
+			next.length === current.length && next.every((item, index) => item === current[index]);
+		if (unchanged(recent, this.recent) && unchanged(pinned, this.pinned)) { return; }
 		this.recent = recent;
 		this.pinned = pinned;
 		await Promise.all([

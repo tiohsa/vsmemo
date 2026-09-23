@@ -8,6 +8,8 @@ import { loadMoveDestinations } from '../moveDestinations';
 import { getWorkspacePath, resolveWorkspacePath } from '../pathUtils';
 import { format as formatDate } from 'date-fns';
 import { activate } from '../extension';
+import { findNote, showMemoActions } from '../noteUi';
+import { NoteHistory } from '../noteHistory';
 import { formatMarkdownTable, parseMarkdownTable, stringifyMarkdownTable } from '../markdownTableUtils';
 
 // --- Global Indirection Wrappers ---
@@ -2231,4 +2233,109 @@ suite('Extension Test Suite - File Organization Suite (High-Priority)', () => {
 		assert(showWarningMessageSpy.calledTwice);
 		assert(showWarningMessageSpy.secondCall.calledWith('Move partially failed. 1 succeeded, 1 failed.'));
 	});
+});
+
+suite('Memo search', () => {
+	test('shows filenames immediately and adds the heading as a searchable label', async () => {
+		const sandbox = sinon.createSandbox();
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vsmemo-search-'));
+		const notes = path.join(directory, 'notes');
+		fs.mkdirSync(notes);
+		const uri = vscode.Uri.file(path.join(notes, '2026-09-23_001.md'));
+		fs.writeFileSync(uri.fsPath, '# 在庫不整合の調査手順\n');
+		const history = new NoteHistory(sharedWorkspaceState as vscode.Memento);
+		let hide: (() => void) | undefined;
+		let shown = false;
+		let currentItems: { label: string; detail?: string }[] = [];
+		const snapshots: string[][] = [];
+		let headingLoaded: () => void = () => {};
+		const headingReady = new Promise<void>(resolve => { headingLoaded = resolve; });
+		const picker = {
+			placeholder: '', matchOnDescription: false, matchOnDetail: false, busy: false,
+			selectedItems: [],
+			get items() { return currentItems; },
+			set items(value: { label: string; detail?: string }[]) {
+				currentItems = value;
+				snapshots.push(value.map(item => item.label));
+				if (value[0]?.label === '在庫不整合の調査手順') { headingLoaded(); }
+			},
+			onDidAccept: () => ({ dispose: () => {} }),
+			onDidHide: (listener: () => void) => { hide = listener; return { dispose: () => {} }; },
+			show: () => { shown = true; },
+			dispose: () => {}
+		};
+		try {
+			currentWorkspaceFoldersStub = () => [{ uri: vscode.Uri.file(directory), name: 'search', index: 0 }];
+			currentGetConfigurationStub = () => ({
+				get: (key: string) => key === 'createDirectory' ? '${workspaceFolder}/notes' : undefined
+			});
+			sandbox.stub(vscode.window, 'createQuickPick').returns(picker as never);
+			sandbox.stub(vscode.workspace, 'findFiles').callsFake(async () => {
+				assert(shown);
+				return [uri];
+			});
+			const search = findNote(history);
+			await Promise.race([
+				headingReady,
+				new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Heading was not loaded: ${JSON.stringify({ shown, snapshots, placeholder: picker.placeholder })}`)), 1000))
+			]);
+			assert.deepStrictEqual(snapshots[0], ['2026-09-23_001']);
+			assert.deepStrictEqual(snapshots.at(-1), ['在庫不整合の調査手順']);
+			assert.strictEqual(currentItems[0].detail, '2026-09-23_001.md');
+			hide?.();
+			await search;
+		} finally {
+			sandbox.restore();
+			currentWorkspaceFoldersStub = undefined;
+			currentGetConfigurationStub = undefined;
+			history.dispose();
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
+});
+
+suite('Memo actions', () => {
+	for (const changed of ['editor', 'version', 'selection', 'none'] as const) {
+		test(`rechecks ${changed} after the final writable check`, async () => {
+			const sandbox = sinon.createSandbox();
+			const uri = vscode.Uri.file('/workspace/notes/action.md');
+			const document = { uri, version: 1 };
+			const editor = { document, selection: new vscode.Selection(0, 0, 0, 0) };
+			let active: unknown = editor;
+			let statCalls = 0;
+			const warning = sandbox.spy();
+			const history = new NoteHistory(sharedWorkspaceState as vscode.Memento);
+			try {
+				currentActiveTextEditorStub = () => active;
+				currentShowQuickPickStub = async (items: { command: string }[]) =>
+					items.find(item => item.command === 'vsmemo.insertTodayDate');
+				currentShowWarningMessageSpy = warning;
+				fsStatStub = async () => {
+					if (++statCalls === 2) {
+						if (changed === 'editor') { active = { document, selection: editor.selection }; }
+						if (changed === 'version') { document.version++; }
+						if (changed === 'selection') { editor.selection = new vscode.Selection(0, 1, 0, 1); }
+					}
+					return { type: vscode.FileType.File };
+				};
+				const execute = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+				await showMemoActions(history, () => false);
+				assert.strictEqual(statCalls, 2);
+				if (changed === 'none') {
+					assert(execute.calledOnceWithExactly('vsmemo.insertTodayDate'));
+					assert(warning.notCalled);
+				} else {
+					assert(execute.notCalled);
+					assert(warning.calledOnce);
+				}
+			} finally {
+				history.dispose();
+				sandbox.restore();
+				currentActiveTextEditorStub = undefined;
+				currentShowQuickPickStub = undefined;
+				currentShowWarningMessageSpy = undefined;
+				fsStatStub = undefined;
+			}
+		});
+	}
 });

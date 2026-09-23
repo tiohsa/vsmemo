@@ -1,6 +1,7 @@
 import assert from 'assert';
 import * as vscode from 'vscode';
 import { NoteHistory } from '../noteHistory';
+import { MoveHistoryTracker } from '../moveHistoryTracker';
 import { SidebarProvider } from '../sidebarProvider';
 
 function state(): vscode.Memento {
@@ -56,5 +57,57 @@ suite('Memo history and sidebar', () => {
 		assert(history.recentUris.includes(sibling.toString()));
 		assert(history.pinnedUris.every(uri => uri !== child.toString()));
 		history.dispose();
+	});
+
+	test('moving onto a URI already in history removes the old source from both lists', async () => {
+		const history = new NoteHistory(state());
+		const source = vscode.Uri.file('/workspace/notes/source.md');
+		const target = vscode.Uri.file('/workspace/archive/target.md');
+		await history.visit(source);
+		await history.visit(target);
+		await history.togglePin(target);
+		await history.togglePin(source);
+
+		await history.move(source, target);
+
+		assert.deepStrictEqual(history.recentUris, [target.toString()]);
+		assert.deepStrictEqual(history.pinnedUris, [target.toString()]);
+		history.dispose();
+	});
+
+	test('move history keeps pins with either delete notification order', async () => {
+		for (const deleteFirst of [true, false]) {
+			const history = new NoteHistory(state());
+			const source = vscode.Uri.file('/workspace/notes/source.md');
+			const target = vscode.Uri.file('/workspace/archive/source.md');
+			const tracker = new MoveHistoryTracker(history, async () => false);
+			await history.visit(source);
+			await history.togglePin(source);
+
+			tracker.begin(source);
+			if (deleteFirst) { await tracker.deleted(source); }
+			await tracker.complete(source, target);
+			if (!deleteFirst) { await tracker.deleted(source); }
+
+			assert.deepStrictEqual(history.recentUris, [target.toString()]);
+			assert.deepStrictEqual(history.pinnedUris, [target.toString()]);
+			history.dispose();
+		}
+	});
+
+	test('failed move retains an existing source and removes one actually deleted', async () => {
+		for (const exists of [true, false]) {
+			const history = new NoteHistory(state());
+			const source = vscode.Uri.file('/workspace/notes/source.md');
+			const tracker = new MoveHistoryTracker(history, async () => exists);
+			await history.visit(source);
+			await history.togglePin(source);
+			tracker.begin(source);
+			await tracker.deleted(source);
+			await tracker.fail(source);
+			assert.strictEqual(history.isPinned(source), exists);
+			assert.strictEqual(history.recentUris.includes(source.toString()), exists);
+			history.dispose();
+		}
 	});
 });

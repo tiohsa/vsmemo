@@ -184,7 +184,9 @@
         {
           "command": "vsmemo.configureMoveDestinationAutoRevealExclude",
           "title": "VSMemo: Prevent Explorer Reveal for Move Destinations"
-        }
+        },
+        { "command": "vsmemo.openNote", "when": "false" },
+        { "command": "vsmemo.moveToDestination", "when": "false" }
       ],
       "explorer/context": [
         {
@@ -208,10 +210,6 @@
         { "command": "vsmemo.togglePinNote", "when": "view == vsmemoSidebarView && viewItem == vsmemoNote", "group": "inline" },
         { "command": "vsmemo.togglePinNote", "when": "view == vsmemoSidebarView && viewItem == vsmemoPinnedNote", "group": "inline" },
         { "command": "vsmemo.moveToDestination", "when": "view == vsmemoDestinationView && viewItem == vsmemoDestination", "group": "inline" }
-      ],
-      "commandPalette": [
-        { "command": "vsmemo.openNote", "when": "false" },
-        { "command": "vsmemo.moveToDestination", "when": "false" }
       ],
       "editor/title": [
         { "command": "vsmemo.showActions", "group": "navigation" }

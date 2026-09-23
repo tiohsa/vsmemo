@@ -1,8 +1,32 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { loadMoveDestinations } from './moveDestinations';
 import { NoteHistory } from './noteHistory';
 import { getWorkspacePath, resolveWorkspacePath } from './pathUtils';
+
+const headingCache = new Map<string, { mtimeMs: number; size: number; title?: string }>();
+
+async function noteHeading(uri: vscode.Uri): Promise<string | undefined> {
+	const key = uri.toString();
+	try {
+		const stat = await fs.promises.stat(uri.fsPath);
+		const cached = headingCache.get(key);
+		if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) { return cached.title; }
+		const handle = await fs.promises.open(uri.fsPath, 'r');
+		let title: string | undefined;
+		try {
+			const bytes = Buffer.alloc(4096);
+			const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+			title = bytes.subarray(0, bytesRead).toString('utf8').match(/^#\s+(.+)$/m)?.[1].trim();
+		} finally { await handle.close(); }
+		headingCache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, title });
+		return title;
+	} catch {
+		headingCache.delete(key);
+		return undefined;
+	}
+}
 
 export function memoRoots(resource?: vscode.Uri): string[] {
 	const roots = new Set<string>();
@@ -35,7 +59,7 @@ export async function findNote(history: NoteHistory): Promise<void> {
 		const picker = vscode.window.createQuickPick<NoteQuickPickItem>();
 		const cancellation = new vscode.CancellationTokenSource();
 		let finished = false;
-		picker.placeholder = 'メモを検索（ファイル名・パス）';
+		picker.placeholder = 'メモを検索（見出し・ファイル名・パス）';
 		picker.matchOnDescription = true;
 		picker.matchOnDetail = true;
 		picker.busy = true;
@@ -70,15 +94,24 @@ export async function findNote(history: NoteHistory): Promise<void> {
 					if (aRank !== bRank) { return (aRank < 0 ? Infinity : aRank) - (bRank < 0 ? Infinity : bRank); }
 					return a.fsPath.localeCompare(b.fsPath);
 				});
-				// Use filenames and paths as searchable labels without opening every note.
-				picker.items = sorted.map(uri => ({
+				const items: NoteQuickPickItem[] = sorted.map(uri => ({
 					label: path.basename(uri.fsPath, path.extname(uri.fsPath)),
 					description: vscode.workspace.asRelativePath(uri, false),
 					detail: path.basename(uri.fsPath),
 					uri
 				}));
+				picker.items = items;
+				if (items.length === 0) { picker.placeholder = 'メモが見つかりません'; }
+				for (let start = 0; start < items.length && !finished; start += 8) {
+					const batch = items.slice(start, start + 8);
+					const headings = await Promise.all(batch.map(item => noteHeading(item.uri)));
+					if (finished) { return; }
+					for (let index = 0; index < batch.length; index++) {
+						if (headings[index]) { batch[index].label = headings[index]!; }
+					}
+					picker.items = [...items];
+				}
 				picker.busy = false;
-				if (picker.items.length === 0) { picker.placeholder = 'メモが見つかりません'; }
 			} catch {
 				if (!finished) {
 					picker.busy = false;
