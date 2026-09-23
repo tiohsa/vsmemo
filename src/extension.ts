@@ -94,6 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
 	updateEmptyMessage();
 	context.subscriptions.push(history.onDidChange(updateEmptyMessage));
 	const revealNote = async (uri: vscode.Uri) => {
+		if (!noteView.visible) { return; }
 		const item = sidebarProvider.itemFor(uri);
 		if (item) {
 			try { await noteView.reveal(item, { select: true, focus: false, expand: false }); }
@@ -119,7 +120,7 @@ export function activate(context: vscode.ExtensionContext) {
 		void history.visit(uri).then(() => revealNote(uri));
 	}
 	context.subscriptions.push(onDidMoveFile(({ source, target }) => {
-		void history.move(source, target).then(() => revealNote(target));
+		void history.move(source, target);
 		if (moveTarget?.toString() === source.toString()) { updateTarget(target); }
 	}));
 	context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => {
@@ -154,7 +155,11 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('vsmemo.showActions', async () => {
 			await showMemoActions(history, editor => !!getTableAtCursor(editor));
 		}),
-		vscode.commands.registerCommand('vsmemo.moveToDestination', async (item: DestinationItem) => {
+		vscode.commands.registerCommand('vsmemo.moveToDestination', async (item?: DestinationItem) => {
+			if (!(item instanceof DestinationItem) || !item.destinationKey) {
+				void vscode.window.showWarningMessage('移動先を選択してください。');
+				return;
+			}
 			const target = moveTarget;
 			if (!target) { void vscode.window.showWarningMessage('移動対象のファイルを開いてください。'); return; }
 			await moveCore({ context, selectedUri: target, fixedDestinationKey: item.destinationKey });

@@ -11,7 +11,7 @@ export class DestinationItem extends vscode.TreeItem {
 		this.description = status;
 		this.tooltip = `${destinationKey}: ${rawPath} (${status})${targetName ? `\n移動対象: ${targetName}` : ''}`;
 		this.iconPath = new vscode.ThemeIcon('folder');
-		this.contextValue = 'vsmemoDestination';
+		this.contextValue = targetName ? 'vsmemoDestination' : 'vsmemoDestinationUnavailable';
 	}
 }
 

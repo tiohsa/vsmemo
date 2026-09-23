@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { loadMoveDestinations } from './moveDestinations';
@@ -32,42 +31,68 @@ export async function findNote(history: NoteHistory): Promise<void> {
 		void vscode.window.showInformationMessage('検索できるメモの保存先がありません。');
 		return;
 	}
-	const found = await Promise.all(roots.map(root =>
-		vscode.workspace.findFiles(new vscode.RelativePattern(vscode.Uri.file(root), '**/*.md'), undefined, 200)
-	));
-	const byKey = new Map<string, vscode.Uri>();
-	for (const uri of found.flat()) { byKey.set(uri.toString(), uri); }
-	const priority = [...history.pinnedUris, ...history.recentUris];
-	const sorted = [...byKey.values()].sort((a, b) => {
-		const aRank = priority.indexOf(a.toString());
-		const bRank = priority.indexOf(b.toString());
-		if (aRank !== bRank) { return (aRank < 0 ? Infinity : aRank) - (bRank < 0 ? Infinity : bRank); }
-		return a.fsPath.localeCompare(b.fsPath);
-	});
-	const items = [];
-	for (const uri of sorted) {
-		let title = path.basename(uri.fsPath, '.md');
-		try {
-			const handle = await fs.promises.open(uri.fsPath, 'r');
+	const selected = await new Promise<NoteQuickPickItem | undefined>(resolve => {
+		const picker = vscode.window.createQuickPick<NoteQuickPickItem>();
+		const cancellation = new vscode.CancellationTokenSource();
+		let finished = false;
+		picker.placeholder = 'メモを検索（ファイル名・パス）';
+		picker.matchOnDescription = true;
+		picker.matchOnDetail = true;
+		picker.busy = true;
+		const finish = (item?: NoteQuickPickItem) => {
+			if (finished) { return; }
+			finished = true;
+			cancellation.cancel();
+			cancellation.dispose();
+			picker.dispose();
+			resolve(item);
+		};
+		picker.onDidAccept(() => finish(picker.selectedItems[0]));
+		picker.onDidHide(() => finish());
+		picker.show();
+		void (async () => {
 			try {
-				const bytes = Buffer.alloc(4096);
-				const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-				const heading = bytes.subarray(0, bytesRead).toString('utf8').match(/^#\s+(.+)$/m);
-				if (heading) { title = heading[1].trim(); }
-			} finally { await handle.close(); }
-		} catch { /* Filename remains searchable if a note cannot be read. */ }
-		items.push({ label: title, description: vscode.workspace.asRelativePath(uri, false), detail: path.basename(uri.fsPath), uri });
-	}
-	const selected = await vscode.window.showQuickPick(items, {
-		placeHolder: 'メモを検索（タイトル・ファイル名・パス）',
-		matchOnDescription: true,
-		matchOnDetail: true
+				const found = await Promise.all(roots.map(root =>
+					vscode.workspace.findFiles(
+						new vscode.RelativePattern(vscode.Uri.file(root), '**/*.md'),
+						undefined,
+						undefined,
+						cancellation.token
+					)
+				));
+				if (finished) { return; }
+				const byKey = new Map<string, vscode.Uri>();
+				for (const uri of found.flat()) { byKey.set(uri.toString(), uri); }
+				const priority = [...history.pinnedUris, ...history.recentUris];
+				const sorted = [...byKey.values()].sort((a, b) => {
+					const aRank = priority.indexOf(a.toString());
+					const bRank = priority.indexOf(b.toString());
+					if (aRank !== bRank) { return (aRank < 0 ? Infinity : aRank) - (bRank < 0 ? Infinity : bRank); }
+					return a.fsPath.localeCompare(b.fsPath);
+				});
+				// Use filenames and paths as searchable labels without opening every note.
+				picker.items = sorted.map(uri => ({
+					label: path.basename(uri.fsPath, path.extname(uri.fsPath)),
+					description: vscode.workspace.asRelativePath(uri, false),
+					detail: path.basename(uri.fsPath),
+					uri
+				}));
+				picker.busy = false;
+				if (picker.items.length === 0) { picker.placeholder = 'メモが見つかりません'; }
+			} catch {
+				if (!finished) {
+					picker.busy = false;
+					picker.placeholder = 'メモを検索できませんでした';
+				}
+			}
+		})();
 	});
 	if (selected) { await vscode.window.showTextDocument(selected.uri); }
 }
 
-export async function isWritable(editor: vscode.TextEditor): Promise<boolean> {
+export async function canEditText(editor: vscode.TextEditor): Promise<boolean> {
 	const uri = editor.document.uri;
+	if (uri.scheme === 'untitled') { return true; }
 	if (uri.scheme !== 'file' || vscode.workspace.fs.isWritableFileSystem?.(uri.scheme) === false) { return false; }
 	try {
 		const stat = await vscode.workspace.fs.stat(uri);
@@ -76,6 +101,7 @@ export async function isWritable(editor: vscode.TextEditor): Promise<boolean> {
 }
 
 interface Action extends vscode.QuickPickItem { command: string; }
+interface NoteQuickPickItem extends vscode.QuickPickItem { uri: vscode.Uri; }
 
 export async function showMemoActions(history: NoteHistory, inTable: (editor: vscode.TextEditor) => boolean): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
@@ -88,9 +114,12 @@ export async function showMemoActions(history: NoteHistory, inTable: (editor: vs
 		return;
 	}
 	const uri = editor.document.uri;
-	const writable = await isWritable(editor);
+	const documentVersion = editor.document.version;
+	const selection = editor.selection;
+	const editable = await canEditText(editor);
+	const canMoveFile = uri.scheme === 'file';
 	const items: Action[] = [];
-	if (writable) {
+	if (editable) {
 		if (inTable(editor)) {
 			items.push(
 				{ label: '表を整形', description: path.basename(uri.fsPath), command: 'vsmemo.formatTableAtCursor' },
@@ -111,6 +140,8 @@ export async function showMemoActions(history: NoteHistory, inTable: (editor: vs
 				{ label: '選択範囲を表へ変換', command: 'vsmemo.convertSelectionToTable' }
 			);
 		}
+	}
+	if (canMoveFile) {
 		items.push(
 			{ label: '移動先を選んで移動', description: path.basename(uri.fsPath), command: 'vsmemo.quickMoveCurrentFile' },
 			{ label: 'アーカイブへ移動', description: path.basename(uri.fsPath), command: 'vsmemo.archiveCurrentNote' }
@@ -120,7 +151,21 @@ export async function showMemoActions(history: NoteHistory, inTable: (editor: vs
 	const selected = await vscode.window.showQuickPick(items, { placeHolder: `${path.basename(uri.fsPath)} の操作` });
 	if (!selected) { return; }
 	if (selected.command === 'vsmemo.findNote') { await findNote(history); return; }
-	if (vscode.window.activeTextEditor?.document.uri.toString() !== uri.toString() || !(await isWritable(editor))) {
+	const isFileMove = selected.command === 'vsmemo.quickMoveCurrentFile' || selected.command === 'vsmemo.archiveCurrentNote';
+	if (isFileMove) {
+		if (!canMoveFile || vscode.window.activeTextEditor !== editor
+			|| editor.document.uri.toString() !== uri.toString()) {
+			void vscode.window.showWarningMessage('操作対象が変わりました。もう一度選んでください。');
+			return;
+		}
+		await vscode.commands.executeCommand(selected.command);
+		return;
+	}
+	const stillWritable = await canEditText(editor);
+	if (!stillWritable || vscode.window.activeTextEditor !== editor
+		|| editor.document.uri.toString() !== uri.toString()
+		|| editor.document.version !== documentVersion
+		|| !editor.selection.isEqual(selection)) {
 		void vscode.window.showWarningMessage('操作対象または編集可否が変わりました。もう一度選んでください。');
 		return;
 	}

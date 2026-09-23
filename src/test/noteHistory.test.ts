@@ -37,4 +37,24 @@ suite('Memo history and sidebar', () => {
 		provider.dispose();
 		history.dispose();
 	});
+
+	test('folder moves update descendant recent and pinned notes without matching sibling prefixes', async () => {
+		const history = new NoteHistory(state());
+		const project = vscode.Uri.file('/workspace/notes/project');
+		const renamed = vscode.Uri.file('/workspace/notes/renamed');
+		const child = vscode.Uri.file('/workspace/notes/project/docs/A.md');
+		const sibling = vscode.Uri.file('/workspace/notes/project-backup/B.md');
+		const renamedChild = vscode.Uri.file('/workspace/notes/renamed/docs/A.md');
+		await history.visit(child);
+		await history.visit(sibling);
+		await history.togglePin(child);
+
+		await history.move(project, renamed);
+
+		assert(history.recentUris.includes(renamedChild.toString()));
+		assert(history.pinnedUris.includes(renamedChild.toString()));
+		assert(history.recentUris.includes(sibling.toString()));
+		assert(history.pinnedUris.every(uri => uri !== child.toString()));
+		history.dispose();
+	});
 });

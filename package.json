@@ -209,6 +209,10 @@
         { "command": "vsmemo.togglePinNote", "when": "view == vsmemoSidebarView && viewItem == vsmemoPinnedNote", "group": "inline" },
         { "command": "vsmemo.moveToDestination", "when": "view == vsmemoDestinationView && viewItem == vsmemoDestination", "group": "inline" }
       ],
+      "commandPalette": [
+        { "command": "vsmemo.openNote", "when": "false" },
+        { "command": "vsmemo.moveToDestination", "when": "false" }
+      ],
       "editor/title": [
         { "command": "vsmemo.showActions", "group": "navigation" }
       ]

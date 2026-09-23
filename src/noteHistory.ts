@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 const recentKey = 'vsmemo.recentNotes';
@@ -37,11 +38,24 @@ export class NoteHistory {
 
 	async move(source: vscode.Uri, target: vscode.Uri): Promise<void> {
 		const from = source.toString();
-		if (!this.recent.includes(from) && !this.pinned.includes(from)) { return; }
-		const to = target.toString();
-		const replace = (items: string[]) => [...new Set(items.map(item => item === from ? to : item))];
-		this.recent = replace(this.recent);
-		this.pinned = replace(this.pinned);
+		const sourcePath = path.resolve(source.fsPath);
+		const targetPath = path.resolve(target.fsPath);
+		const replace = (items: string[]) => [...new Set(items.map(item => {
+			if (item === from) { return target.toString(); }
+			try {
+				const itemUri = vscode.Uri.parse(item);
+				if (itemUri.scheme !== source.scheme) { return item; }
+				const relative = path.relative(sourcePath, path.resolve(itemUri.fsPath));
+				if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) { return item; }
+				return vscode.Uri.file(path.join(targetPath, relative)).toString();
+			} catch { return item; }
+		}))];
+		const recent = replace(this.recent);
+		const pinned = replace(this.pinned);
+		if (recent.every((item, index) => item === this.recent[index])
+			&& pinned.every((item, index) => item === this.pinned[index])) { return; }
+		this.recent = recent;
+		this.pinned = pinned;
 		await Promise.all([
 			this.state.update(recentKey, this.recent),
 			this.state.update(pinnedKey, this.pinned)
